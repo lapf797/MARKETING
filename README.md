@@ -9,8 +9,12 @@ máquinas, equipamentos etc.) no Facebook Ads, com três camadas:
    todas as campanhas ativas e propõe ajustes (orçamento, pausas, retomadas). Essas ações
    passam por um conjunto de **guardrails de segurança** (limites configuráveis por você)
    antes de serem aplicadas de verdade no Facebook Ads.
-3. **Power BI em tempo real** — métricas de performance, ações aplicadas e recomendações de
-   público são enviadas continuamente para um dataset de push do Power BI.
+3. **Dashboard web** — um painel estático (`docs/index.html`, publicável via GitHub Pages)
+   mostra gasto, conversões, a decisão da IA de hoje e o que as guardrails aprovaram ou
+   bloquearam — sem precisar de nenhuma ferramenta externa.
+4. **Power BI em tempo real** — métricas de performance, ações aplicadas e recomendações de
+   público são enviadas continuamente para um dataset de push do Power BI, para relatórios
+   mais robustos e compartilhamento com a equipe.
 
 Tudo isso roda sozinho via GitHub Actions, uma vez por dia, sem precisar de servidor.
 
@@ -34,15 +38,19 @@ scripts/run_daily_optimization.py
         │
         ├─► Facebook Graph API ──► aplica as ações aprovadas (ou simula, em dry-run)
         │
-        ├─► logs/audit_log.jsonl ──► registra tudo (antes/depois, motivo, confiança)
-        │                             e é versionado no próprio repositório git
+        ├─► logs/audit_log.jsonl ──► registra TODA decisão (aplicada, simulada ou
+        │                             rejeitada, com motivo e confiança) — versionado
+        │                             no próprio repositório git
+        │
+        ├─► docs/dashboard_data.json ──► snapshot para o dashboard web (docs/index.html)
         │
         └─► Power BI (Push Dataset API) ──► métricas + ações + recomendações em tempo real
 ```
 
 Separadamente, `scripts/suggest_audience.py` é usado sob demanda sempre que você tem um
-**novo ativo** para anunciar: a IA sugere o público-alvo e cria um rascunho de campanha
-**pausada** no Facebook Ads para sua revisão antes de ativar.
+**novo ativo** para anunciar: a IA sugere o público-alvo, registra a recomendação (dashboard
++ Power BI) e cria um rascunho de campanha **pausada** no Facebook Ads para sua revisão antes
+de ativar.
 
 ## Estrutura do projeto
 
@@ -50,7 +58,7 @@ Separadamente, `scripts/suggest_audience.py` é usado sob demanda sempre que voc
 config/settings.yaml           # limites de segurança e parâmetros (versionado, sem segredos)
 src/facebook_ads/               # cliente da Graph API + coleta de métricas
 src/ai/                         # prompts e chamadas à Claude (recomendação + otimização)
-src/safety/                     # guardrails + trilha de auditoria
+src/safety/                     # guardrails + trilha de auditoria + log de recomendações
 src/reporting/                  # push para o Power BI
 scripts/run_daily_optimization.py   # roda todo dia via GitHub Actions
 scripts/suggest_audience.py         # roda sob demanda para um novo ativo
@@ -58,7 +66,10 @@ scripts/setup_powerbi_dataset.py    # roda uma única vez, na configuração ini
 scripts/rollback.py                 # reverte manualmente a última ação em um alvo
 .github/workflows/daily-optimization.yml   # agenda a execução diária
 .github/workflows/ci.yml                   # roda os testes em cada PR
+docs/index.html                 # dashboard web (publicável via GitHub Pages)
+docs/dashboard_data.json        # dados que alimentam o dashboard (gerado pelo pipeline)
 logs/audit_log.jsonl            # trilha de auditoria (append-only, versionada no git)
+logs/audience_recommendations.jsonl   # histórico de recomendações de público
 tests/                          # testes das guardrails de segurança
 ```
 
@@ -114,6 +125,9 @@ python scripts/run_daily_optimization.py
 
 Revise a saída no terminal e o arquivo `logs/audit_log.jsonl` gerado. Rode algumas vezes
 (em dias diferentes, com dados reais) até confiar no comportamento da IA e das guardrails.
+Esse comando também grava `docs/dashboard_data.json` — abra `docs/index.html` direto no
+navegador (duplo clique) para ver os dados reais no dashboard antes mesmo de publicar
+qualquer coisa.
 
 ### 6. Configurar os Secrets no GitHub
 
@@ -128,11 +142,37 @@ O workflow `.github/workflows/daily-optimization.yml` roda todo dia às 09:00 UT
 disparado automaticamente no branch padrão do repositório; após o merge desta branch,
 confirme que o `cron` está ativo em **Actions**.
 
-### 7. Ligar a automação de verdade
+### 7. Publicar o dashboard (GitHub Pages)
+
+Passo único, manual (a API do GitHub Pages exige isso na primeira vez):
+
+1. No repositório, vá em **Settings → Pages**.
+2. Em **Source**, escolha **Deploy from a branch**.
+3. Em **Branch**, escolha o branch padrão (ex: `main`) e a pasta **`/docs`**. Salve.
+4. Em alguns minutos o dashboard fica disponível em
+   `https://<seu-usuario>.github.io/<repositorio>/`.
+
+A partir da primeira execução do workflow diário (ou de `scripts/suggest_audience.py`
+com o commit dos dados), o dashboard passa a mostrar dados reais automaticamente — não
+precisa repetir esse passo depois.
+
+### 8. Ligar a automação de verdade
 
 Depois de validar o comportamento em dry-run, edite `config/settings.yaml`,
 mude `safety.dry_run` para `false`, e faça commit. A partir daí o sistema passa a aplicar
 mudanças reais nas suas campanhas, sempre dentro dos limites configurados.
+
+## Dashboard web
+
+`docs/index.html` é um painel estático de página única — sem servidor, sem build, sem
+dependências externas. Ele tenta carregar `docs/dashboard_data.json` (gerado a cada
+execução do pipeline); se esse arquivo ainda não existir (repositório recém-criado),
+mostra dados de exemplo com um aviso no topo, para você já ver o layout funcionando.
+
+Mostra: gasto/conversões/CPA do período, o resumo que a própria IA escreveu sobre a
+execução do dia, um gráfico de gasto diário, a tabela de performance por adset, o feed
+de decisões da IA (aplicadas, simuladas ou bloqueadas pelas guardrails, com o motivo do
+bloqueio) e as recomendações de público-alvo mais recentes.
 
 ## Sistema de segurança (guardrails)
 
@@ -178,6 +218,8 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
   nível da campanha, não do adset — os metadados coletados já identificam isso
   (`budget_control_level`), mas vale conferir se as ações propostas fazem sentido no seu
   setup.
+- O dashboard (`docs/index.html`) atualiza uma vez por dia, junto com a execução do
+  workflow — não é "ao vivo" minuto a minuto. Para isso, use o Power BI.
 
 ## Próximos passos sugeridos
 

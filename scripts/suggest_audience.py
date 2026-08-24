@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from datetime import datetime, timezone
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
@@ -23,6 +24,8 @@ from src.ai.audience_advisor import recommend_audience
 from src.config import load_config
 from src.facebook_ads.client import FacebookAdsClient
 from src.facebook_ads.insights import fetch_audience_breakdown
+from src.reporting.powerbi_push import PowerBIClient
+from src.safety.recommendation_log import log_recommendation
 
 _GENDER_CODES = {"male": [1], "female": [2], "all": [1, 2]}
 
@@ -64,6 +67,29 @@ def main() -> None:
     print(f"Orçamento diário sugerido: {recommendation.suggested_daily_budget_cents / 100:.2f}")
     print(f"Confiança: {recommendation.confidence:.2f}")
     print(f"Raciocínio: {recommendation.reasoning}")
+
+    log_recommendation(
+        asset_category=args.category, asset_description=args.description,
+        target_location=args.location, recommendation=recommendation,
+    )
+
+    if config.powerbi.push_enabled:
+        pbi = PowerBIClient(config.powerbi.tenant_id, config.powerbi.client_id,
+                             config.powerbi.client_secret, config.powerbi.workspace_id,
+                             config.powerbi.dataset_id)
+        pbi.push_rows(config.powerbi.table_audience, [{
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            "asset_category": args.category,
+            "asset_description": args.description,
+            "age_min": recommendation.age_min,
+            "age_max": recommendation.age_max,
+            "gender_targeting": recommendation.gender_targeting,
+            "interests": ", ".join(recommendation.interests),
+            "geo_locations": ", ".join(recommendation.geo_locations),
+            "placements": ", ".join(recommendation.placements),
+            "suggested_daily_budget": recommendation.suggested_daily_budget_cents / 100,
+            "confidence": recommendation.confidence,
+        }])
 
     if args.no_create:
         return

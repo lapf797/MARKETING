@@ -26,7 +26,7 @@ def main() -> None:
     fb_client = FacebookAdsClient(config.facebook.access_token, config.facebook.ad_account_id,
                                    config.facebook.api_version)
 
-    entries = [e for e in read_log() if e["target_id"] == args.target_id and not e.get("dry_run")]
+    entries = [e for e in read_log() if e["target_id"] == args.target_id and e.get("status") == "applied"]
     if not entries:
         print(f"Nenhuma ação real registrada para {args.target_id}. Nada para reverter.")
         return
@@ -53,7 +53,8 @@ def main() -> None:
         action_type=f"rollback_{last['action_type']}", target_type=last["target_type"],
         target_id=args.target_id, target_name=last["target_name"],
         before_value=last["after_value"], after_value=last["before_value"],
-        reasoning="Rollback manual solicitado via scripts/rollback.py", confidence=1.0, dry_run=False,
+        reasoning="Rollback manual solicitado via scripts/rollback.py", confidence=1.0,
+        status="applied", dry_run=False,
     )
     print("Rollback aplicado e registrado na trilha de auditoria.")
 

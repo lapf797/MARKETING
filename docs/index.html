@@ -1,0 +1,806 @@
+<meta charset="UTF-8" />
+<title>Painel de Otimização</title>
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<style>
+  :root {
+    color-scheme: light;
+    --surface-page: #f9f9f7;
+    --surface-card: #fcfcfb;
+    --text-primary: #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted: #898781;
+    --border: rgba(11, 11, 11, 0.10);
+    --border-strong: rgba(11, 11, 11, 0.16);
+    --grid: #e1e0d9;
+    --baseline: #c3c2b7;
+    --accent: #2a78d6;
+    --accent-tint: rgba(42, 120, 214, 0.08);
+    --accent-tint-strong: rgba(42, 120, 214, 0.16);
+    --good: #0ca30c;
+    --good-tint: rgba(12, 163, 12, 0.10);
+    --warning: #b8790a;
+    --warning-tint: rgba(250, 178, 25, 0.16);
+    --critical: #d03b3b;
+    --critical-tint: rgba(208, 59, 59, 0.10);
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      color-scheme: dark;
+      --surface-page: #0d0d0d;
+      --surface-card: #1a1a19;
+      --text-primary: #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted: #898781;
+      --border: rgba(255, 255, 255, 0.10);
+      --border-strong: rgba(255, 255, 255, 0.18);
+      --grid: #2c2c2a;
+      --baseline: #383835;
+      --accent: #3987e5;
+      --accent-tint: rgba(57, 135, 229, 0.12);
+      --accent-tint-strong: rgba(57, 135, 229, 0.22);
+      --good: #0ca30c;
+      --good-tint: rgba(12, 163, 12, 0.16);
+      --warning: #fab219;
+      --warning-tint: rgba(250, 178, 25, 0.16);
+      --critical: #e66767;
+      --critical-tint: rgba(230, 103, 103, 0.14);
+    }
+  }
+  :root[data-theme="dark"] {
+    color-scheme: dark;
+    --surface-page: #0d0d0d;
+    --surface-card: #1a1a19;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --border: rgba(255, 255, 255, 0.10);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --grid: #2c2c2a;
+    --baseline: #383835;
+    --accent: #3987e5;
+    --accent-tint: rgba(57, 135, 229, 0.12);
+    --accent-tint-strong: rgba(57, 135, 229, 0.22);
+    --good: #0ca30c;
+    --good-tint: rgba(12, 163, 12, 0.16);
+    --warning: #fab219;
+    --warning-tint: rgba(250, 178, 25, 0.16);
+    --critical: #e66767;
+    --critical-tint: rgba(230, 103, 103, 0.14);
+  }
+
+  * { box-sizing: border-box; }
+  html, body {
+    margin: 0;
+    background: var(--surface-page);
+    color: var(--text-primary);
+    font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  body {
+    padding: 20px 16px 64px;
+  }
+  .wrap {
+    max-width: 1180px;
+    margin: 0 auto;
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+  }
+
+  a { color: var(--accent); }
+
+  .banner {
+    display: none;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 14px;
+    border-radius: 8px;
+    background: var(--accent-tint);
+    border: 1px solid var(--accent-tint-strong);
+    color: var(--text-secondary);
+    font-size: 13px;
+  }
+  .banner.show { display: flex; }
+  .banner strong { color: var(--text-primary); }
+
+  header.top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 16px;
+  }
+  header.top h1 {
+    margin: 0 0 4px;
+    font-size: 22px;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    text-wrap: balance;
+  }
+  header.top p {
+    margin: 0;
+    color: var(--text-secondary);
+    font-size: 14px;
+    max-width: 60ch;
+  }
+  .meta {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 6px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+  .status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    border-radius: 999px;
+    font-size: 12px;
+    font-weight: 600;
+    border: 1px solid var(--border-strong);
+  }
+  .status-pill.live { color: var(--good); background: var(--good-tint); border-color: transparent; }
+  .status-pill.sim { color: var(--warning); background: var(--warning-tint); border-color: transparent; }
+  .status-pill .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; }
+
+  .kpi-grid {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 12px;
+  }
+  .kpi {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px 16px;
+  }
+  .kpi .label {
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--text-muted);
+    margin: 0 0 6px;
+  }
+  .kpi .value {
+    font-size: 24px;
+    font-weight: 700;
+    font-variant-numeric: tabular-nums;
+    letter-spacing: -0.01em;
+  }
+  .kpi .sub {
+    margin-top: 4px;
+    font-size: 12px;
+    color: var(--text-secondary);
+  }
+
+  .card {
+    background: var(--surface-card);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 18px;
+  }
+  .card h2 {
+    margin: 0 0 2px;
+    font-size: 15px;
+    font-weight: 700;
+  }
+  .card .card-sub {
+    margin: 0 0 14px;
+    font-size: 12px;
+    color: var(--text-muted);
+  }
+
+  .ai-summary {
+    display: flex;
+    gap: 12px;
+    align-items: flex-start;
+    border-left: 3px solid var(--accent);
+    padding: 12px 16px;
+    background: var(--accent-tint);
+    border-radius: 0 8px 8px 0;
+  }
+  .ai-summary .tag {
+    font-size: 11px;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--accent);
+    white-space: nowrap;
+  }
+  .ai-summary p {
+    margin: 0;
+    font-size: 14px;
+    line-height: 1.5;
+    color: var(--text-primary);
+  }
+
+  .chart-wrap { position: relative; }
+  svg.chart { width: 100%; height: 220px; display: block; overflow: visible; }
+  .chart-tooltip {
+    position: absolute;
+    pointer-events: none;
+    background: var(--surface-card);
+    border: 1px solid var(--border-strong);
+    border-radius: 6px;
+    padding: 6px 10px;
+    font-size: 12px;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
+    opacity: 0;
+    transition: opacity 0.1s;
+    white-space: nowrap;
+    z-index: 2;
+  }
+  .chart-tooltip .t-date { color: var(--text-muted); font-size: 11px; }
+  .chart-tooltip .t-value { font-weight: 700; font-variant-numeric: tabular-nums; }
+
+  .split {
+    display: grid;
+    grid-template-columns: 1.3fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+
+  table.data {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+  table.data th {
+    text-align: left;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: 0.04em;
+    color: var(--text-muted);
+    font-weight: 600;
+    padding: 0 10px 8px 0;
+    border-bottom: 1px solid var(--grid);
+  }
+  table.data td {
+    padding: 9px 10px 9px 0;
+    border-bottom: 1px solid var(--grid);
+    vertical-align: middle;
+  }
+  table.data tbody tr:last-child td { border-bottom: none; }
+  table.data td.num, table.data th.num { text-align: right; font-variant-numeric: tabular-nums; }
+  .table-scroll { overflow-x: auto; }
+  .name-cell .primary { font-weight: 600; }
+  .name-cell .secondary { color: var(--text-muted); font-size: 12px; }
+
+  .chip {
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    font-size: 11px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+  .chip .dot { width: 6px; height: 6px; border-radius: 50%; background: currentColor; flex: none; }
+  .chip.applied { color: var(--good); background: var(--good-tint); }
+  .chip.simulated { color: var(--text-secondary); background: var(--border); }
+  .chip.rejected { color: var(--warning); background: var(--warning-tint); }
+  .chip.status-active { color: var(--good); background: var(--good-tint); }
+  .chip.status-paused { color: var(--text-secondary); background: var(--border); }
+
+  .feed { display: flex; flex-direction: column; gap: 10px; max-height: 480px; overflow-y: auto; padding-right: 2px; }
+  .feed-item { border: 1px solid var(--border); border-radius: 8px; padding: 10px 12px; }
+  .feed-item .row1 { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 4px; }
+  .feed-item .action-label { font-size: 13px; font-weight: 600; }
+  .feed-item .target { font-size: 12px; color: var(--text-secondary); margin-bottom: 4px; }
+  .feed-item .reasoning { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+  .feed-item .rejection { font-size: 12px; color: var(--warning); margin-top: 4px; }
+  .feed-item .foot { display: flex; justify-content: space-between; margin-top: 6px; font-size: 11px; color: var(--text-muted); }
+  .feed-item .adj-flag { color: var(--accent); }
+
+  .rec-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 12px; }
+  .rec-card { border: 1px solid var(--border); border-radius: 8px; padding: 12px 14px; }
+  .rec-card .cat { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em; color: var(--accent); }
+  .rec-card h3 { margin: 4px 0 6px; font-size: 14px; font-weight: 600; }
+  .rec-card .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
+  .rec-card .facts b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
+  .rec-card .reasoning { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+
+  .empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
+
+  footer.foot {
+    text-align: center;
+    font-size: 12px;
+    color: var(--text-muted);
+    padding-top: 8px;
+  }
+
+  @media (max-width: 860px) {
+    .kpi-grid { grid-template-columns: repeat(2, 1fr); }
+    .split { grid-template-columns: 1fr; }
+    .rec-grid { grid-template-columns: 1fr; }
+    header.top { flex-direction: column; }
+    .meta { align-items: flex-start; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+  }
+</style>
+
+<div class="wrap">
+  <div id="banner" class="banner">
+    <span>&#9432;</span>
+    <span><strong>Mostrando dados de exemplo.</strong> Os dados reais aparecem aqui automaticamente após a primeira execução do pipeline (veja <code>docs/dashboard_data.json</code>).</span>
+  </div>
+
+  <header class="top">
+    <div>
+      <h1>Painel de Otimização — Leilões no Facebook Ads</h1>
+      <p>Performance das campanhas e decisões da IA, geradas pelo pipeline diário e revisadas pelas guardrails de segurança antes de qualquer mudança real.</p>
+    </div>
+    <div class="meta">
+      <span id="status-pill" class="status-pill sim"><span class="dot"></span><span id="status-text">—</span></span>
+      <span id="generated-at">—</span>
+    </div>
+  </header>
+
+  <section class="kpi-grid">
+    <div class="kpi">
+      <p class="label">Gasto no período</p>
+      <p class="value" id="kpi-spend">—</p>
+    </div>
+    <div class="kpi">
+      <p class="label">Conversões</p>
+      <p class="value" id="kpi-conversions">—</p>
+    </div>
+    <div class="kpi">
+      <p class="label">CPA médio</p>
+      <p class="value" id="kpi-cpa">—</p>
+    </div>
+    <div class="kpi">
+      <p class="label">Adsets ativos</p>
+      <p class="value" id="kpi-adsets">—</p>
+    </div>
+  </section>
+
+  <div class="ai-summary">
+    <span class="tag">IA hoje</span>
+    <p id="ai-summary-text">—</p>
+  </div>
+
+  <section class="card">
+    <h2>Gasto diário</h2>
+    <p class="card-sub">Soma do investimento em todos os adsets ativos, por dia.</p>
+    <div class="chart-wrap">
+      <svg id="chart" class="chart" viewBox="0 0 960 220" preserveAspectRatio="none"></svg>
+      <div id="chart-tooltip" class="chart-tooltip"></div>
+    </div>
+  </section>
+
+  <section class="split">
+    <div class="card">
+      <h2>Performance por adset</h2>
+      <p class="card-sub">Agregado do período buscado pelo pipeline.</p>
+      <div class="table-scroll">
+        <table class="data">
+          <thead>
+            <tr>
+              <th>Campanha / Adset</th>
+              <th class="num">Gasto</th>
+              <th class="num">Conv.</th>
+              <th class="num">CPA</th>
+              <th class="num">CTR</th>
+              <th>Status</th>
+            </tr>
+          </thead>
+          <tbody id="campaigns-body"></tbody>
+        </table>
+      </div>
+      <div id="campaigns-empty" class="empty" style="display:none;">Nenhuma campanha ativa encontrada no último período.</div>
+    </div>
+
+    <div class="card">
+      <h2>Decisões da IA</h2>
+      <p class="card-sub">Ações propostas hoje — aplicadas, simuladas ou bloqueadas pelas guardrails.</p>
+      <div id="actions-feed" class="feed"></div>
+      <div id="actions-empty" class="empty" style="display:none;">Nenhuma ação registrada ainda.</div>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Recomendações de público-alvo recentes</h2>
+    <p class="card-sub">Geradas sob demanda via <code>scripts/suggest_audience.py</code> para novos ativos.</p>
+    <div id="rec-grid" class="rec-grid"></div>
+    <div id="rec-empty" class="empty" style="display:none;">Nenhuma recomendação registrada ainda.</div>
+  </section>
+
+  <footer class="foot">
+    Dados gerados pelo pipeline diário (GitHub Actions) · relatórios completos ao vivo no Power BI.
+  </footer>
+</div>
+
+<script>
+(function () {
+  "use strict";
+
+  var CURRENCY = new Intl.NumberFormat("pt-BR", { style: "currency", currency: "BRL" });
+  var NUMBER = new Intl.NumberFormat("pt-BR");
+  var PCT = new Intl.NumberFormat("pt-BR", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+
+  var ACTION_LABELS = {
+    increase_budget: "Aumentar orçamento",
+    decrease_budget: "Reduzir orçamento",
+    pause: "Pausar",
+    resume: "Reativar",
+    flag_for_audience_refresh: "Sinalizar público esgotado",
+    no_action: "Nenhuma ação"
+  };
+
+  var SAMPLE_DATA = {
+    generated_at: new Date().toISOString(),
+    dry_run: true,
+    summary: {
+      total_spend: 8420.35,
+      total_conversions: 132,
+      avg_cpa: 63.79,
+      active_adsets: 9,
+      ai_summary: "Dois adsets de imóveis na Zona Sul concentram 70% das conversões com CPA 40% abaixo da média — aumentei o orçamento deles dentro do limite diário. O adset do lote de veículos utilitários segue sem conversões após R$ 480 de gasto; propus pausa. Frequência do público de máquinas agrícolas já passou de 4x — sinalizei para revisão de público."
+    },
+    spend_series: [
+      { date: "2026-08-17", value: 980.2 },
+      { date: "2026-08-18", value: 1120.5 },
+      { date: "2026-08-19", value: 1005.0 },
+      { date: "2026-08-20", value: 1240.8 },
+      { date: "2026-08-21", value: 1180.4 },
+      { date: "2026-08-22", value: 1340.1 },
+      { date: "2026-08-23", value: 1553.35 }
+    ],
+    campaigns: [
+      { campaign_name: "Leilão Imóveis Zona Sul", adset_name: "Apto 3q Vila Mariana", spend: 2140.5, conversions: 48, cpa: 44.6, ctr: 2.31, status: "ACTIVE" },
+      { campaign_name: "Leilão Imóveis Zona Sul", adset_name: "Casa 4q Moema", spend: 1890.1, conversions: 39, cpa: 48.46, ctr: 2.05, status: "ACTIVE" },
+      { campaign_name: "Leilão Veículos", adset_name: "Utilitário Frota 2021", spend: 480.0, conversions: 0, cpa: null, ctr: 0.62, status: "ACTIVE" },
+      { campaign_name: "Leilão Máquinas Agrícolas", adset_name: "Colheitadeira Lote 12", spend: 1320.75, conversions: 21, cpa: 62.9, ctr: 1.48, status: "ACTIVE" },
+      { campaign_name: "Leilão Imóveis Litoral", adset_name: "Cobertura Guarujá", spend: 2589.0, conversions: 24, cpa: 107.88, ctr: 1.12, status: "PAUSED" }
+    ],
+    recent_actions: [
+      {
+        timestamp: new Date(Date.now() - 2 * 3600e3).toISOString(), action_type: "increase_budget",
+        target_name: "Apto 3q Vila Mariana", before_value: "20000", after_value: "24000",
+        reasoning: "CPA 40% abaixo da média da conta nos últimos 7 dias, com gasto suficiente para confiar no resultado.",
+        confidence: 0.87, status: "simulated", adjusted: false, rejection_reason: null
+      },
+      {
+        timestamp: new Date(Date.now() - 2.1 * 3600e3).toISOString(), action_type: "pause",
+        target_name: "Utilitário Frota 2021", before_value: "15000", after_value: null,
+        reasoning: "R$ 480 investidos sem nenhuma conversão registrada — acima do limiar mínimo de conversões confiáveis.",
+        confidence: 0.81, status: "simulated", adjusted: false, rejection_reason: null
+      },
+      {
+        timestamp: new Date(Date.now() - 2.2 * 3600e3).toISOString(), action_type: "decrease_budget",
+        target_name: "Cobertura Guarujá", before_value: "30000", after_value: "9000",
+        reasoning: "CPA muito acima do teto configurado; proposta de corte agressivo de 70%.",
+        confidence: 0.74, status: "rejected", adjusted: true,
+        rejection_reason: "variação acima do limite diário de 20% — o valor seria ajustado para R$ 240,00, mas ainda assim está em cooldown de outra mudança recente"
+      },
+      {
+        timestamp: new Date(Date.now() - 2.3 * 3600e3).toISOString(), action_type: "flag_for_audience_refresh",
+        target_name: "Colheitadeira Lote 12", before_value: null, after_value: null,
+        reasoning: "Frequência de 4.3 nos últimos 5 dias sugere saturação do público atual.",
+        confidence: 0.68, status: "simulated", adjusted: false, rejection_reason: null
+      }
+    ],
+    recent_recommendations: [
+      {
+        timestamp: new Date(Date.now() - 26 * 3600e3).toISOString(), asset_category: "Imóveis",
+        asset_description: "Apartamento 3 quartos, Zona Sul, 90m²", age_min: 30, age_max: 55,
+        gender_targeting: "all", interests: ["Real estate", "Investimentos", "Compradores de imóveis"],
+        geo_locations: ["São Paulo, SP (raio 25km)"], suggested_daily_budget_cents: 20000, confidence: 0.79,
+        reasoning: "Perfil semelhante às campanhas de melhor CPA da conta nos últimos 90 dias, mesma faixa etária e região."
+      },
+      {
+        timestamp: new Date(Date.now() - 70 * 3600e3).toISOString(), asset_category: "Veículos",
+        asset_description: "Utilitário 2021, baixa quilometragem", age_min: 25, age_max: 50,
+        gender_targeting: "male", interests: ["Automóveis", "Pequenas empresas"],
+        geo_locations: ["Grande São Paulo"], suggested_daily_budget_cents: 15000, confidence: 0.62,
+        reasoning: "Histórico limitado de campanhas de veículos utilitários na conta — recomendação conservadora."
+      }
+    ]
+  };
+
+  var els = {
+    banner: document.getElementById("banner"),
+    statusPill: document.getElementById("status-pill"),
+    statusText: document.getElementById("status-text"),
+    generatedAt: document.getElementById("generated-at"),
+    kpiSpend: document.getElementById("kpi-spend"),
+    kpiConversions: document.getElementById("kpi-conversions"),
+    kpiCpa: document.getElementById("kpi-cpa"),
+    kpiAdsets: document.getElementById("kpi-adsets"),
+    aiSummary: document.getElementById("ai-summary-text"),
+    chart: document.getElementById("chart"),
+    chartTooltip: document.getElementById("chart-tooltip"),
+    campaignsBody: document.getElementById("campaigns-body"),
+    campaignsEmpty: document.getElementById("campaigns-empty"),
+    actionsFeed: document.getElementById("actions-feed"),
+    actionsEmpty: document.getElementById("actions-empty"),
+    recGrid: document.getElementById("rec-grid"),
+    recEmpty: document.getElementById("rec-empty")
+  };
+
+  function esc(str) {
+    return String(str == null ? "" : str).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function fmtMoney(v) {
+    if (v == null || isNaN(v)) return "—";
+    return CURRENCY.format(v);
+  }
+
+  function fmtDateShort(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleDateString("pt-BR", { day: "2-digit", month: "short" });
+  }
+
+  function fmtDateTime(iso) {
+    if (!iso) return "";
+    var d = new Date(iso);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleString("pt-BR", { day: "2-digit", month: "short", hour: "2-digit", minute: "2-digit" });
+  }
+
+  function renderHeader(data) {
+    var isDryRun = !!data.dry_run;
+    els.statusPill.className = "status-pill " + (isDryRun ? "sim" : "live");
+    els.statusText.textContent = isDryRun ? "Simulação (dry-run)" : "Ao vivo";
+    els.generatedAt.textContent = "Atualizado em " + fmtDateTime(data.generated_at);
+    els.aiSummary.textContent = (data.summary && data.summary.ai_summary) || "Sem execução recente.";
+  }
+
+  function renderKpis(summary) {
+    summary = summary || {};
+    els.kpiSpend.textContent = fmtMoney(summary.total_spend);
+    els.kpiConversions.textContent = summary.total_conversions != null ? NUMBER.format(summary.total_conversions) : "—";
+    els.kpiCpa.textContent = summary.avg_cpa != null ? fmtMoney(summary.avg_cpa) : "—";
+    els.kpiAdsets.textContent = summary.active_adsets != null ? NUMBER.format(summary.active_adsets) : "—";
+  }
+
+  function renderChart(series) {
+    var svg = els.chart;
+    var tooltip = els.chartTooltip;
+    svg.innerHTML = "";
+    if (!series || !series.length) {
+      var msg = document.createElementNS("http://www.w3.org/2000/svg", "text");
+      msg.setAttribute("x", "480");
+      msg.setAttribute("y", "110");
+      msg.setAttribute("text-anchor", "middle");
+      msg.setAttribute("fill", "var(--text-muted)");
+      msg.setAttribute("font-size", "13");
+      msg.textContent = "Sem dados de gasto no período.";
+      svg.appendChild(msg);
+      return;
+    }
+
+    var W = 960, H = 220, PAD_L = 8, PAD_R = 8, PAD_T = 16, PAD_B = 28;
+    var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+    var values = series.map(function (p) { return Number(p.value) || 0; });
+    var maxV = Math.max.apply(null, values.concat([0.0001]));
+    var minV = 0;
+
+    function xAt(i) { return PAD_L + (series.length === 1 ? plotW / 2 : (i / (series.length - 1)) * plotW); }
+    function yAt(v) { return PAD_T + plotH - ((v - minV) / (maxV - minV || 1)) * plotH; }
+
+    var ns = "http://www.w3.org/2000/svg";
+    var gridGroup = document.createElementNS(ns, "g");
+    var gridLines = 4;
+    for (var g = 0; g <= gridLines; g++) {
+      var gy = PAD_T + (plotH / gridLines) * g;
+      var line = document.createElementNS(ns, "line");
+      line.setAttribute("x1", PAD_L); line.setAttribute("x2", W - PAD_R);
+      line.setAttribute("y1", gy); line.setAttribute("y2", gy);
+      line.setAttribute("stroke", "var(--grid)");
+      line.setAttribute("stroke-width", "1");
+      gridGroup.appendChild(line);
+
+      var val = maxV - (maxV / gridLines) * g;
+      var label = document.createElementNS(ns, "text");
+      label.setAttribute("x", 0);
+      label.setAttribute("y", gy - 4);
+      label.setAttribute("fill", "var(--text-muted)");
+      label.setAttribute("font-size", "10");
+      label.textContent = "R$ " + Math.round(val).toLocaleString("pt-BR");
+      gridGroup.appendChild(label);
+    }
+    svg.appendChild(gridGroup);
+
+    var points = series.map(function (p, i) { return [xAt(i), yAt(Number(p.value) || 0)]; });
+    var linePath = "M" + points.map(function (pt) { return pt[0].toFixed(1) + "," + pt[1].toFixed(1); }).join(" L");
+    var areaPath = linePath + " L" + points[points.length - 1][0].toFixed(1) + "," + (PAD_T + plotH) +
+      " L" + points[0][0].toFixed(1) + "," + (PAD_T + plotH) + " Z";
+
+    var defs = document.createElementNS(ns, "defs");
+    var gradId = "spendGrad";
+    var grad = document.createElementNS(ns, "linearGradient");
+    grad.setAttribute("id", gradId);
+    grad.setAttribute("x1", "0"); grad.setAttribute("y1", "0");
+    grad.setAttribute("x2", "0"); grad.setAttribute("y2", "1");
+    var stop1 = document.createElementNS(ns, "stop");
+    stop1.setAttribute("offset", "0%"); stop1.setAttribute("stop-color", "var(--accent)"); stop1.setAttribute("stop-opacity", "0.28");
+    var stop2 = document.createElementNS(ns, "stop");
+    stop2.setAttribute("offset", "100%"); stop2.setAttribute("stop-color", "var(--accent)"); stop2.setAttribute("stop-opacity", "0");
+    grad.appendChild(stop1); grad.appendChild(stop2);
+    defs.appendChild(grad);
+    svg.appendChild(defs);
+
+    var area = document.createElementNS(ns, "path");
+    area.setAttribute("d", areaPath);
+    area.setAttribute("fill", "url(#" + gradId + ")");
+    area.setAttribute("stroke", "none");
+    svg.appendChild(area);
+
+    var line = document.createElementNS(ns, "path");
+    line.setAttribute("d", linePath);
+    line.setAttribute("fill", "none");
+    line.setAttribute("stroke", "var(--accent)");
+    line.setAttribute("stroke-width", "2");
+    line.setAttribute("stroke-linejoin", "round");
+    line.setAttribute("stroke-linecap", "round");
+    svg.appendChild(line);
+
+    var lastPt = points[points.length - 1];
+    var endDot = document.createElementNS(ns, "circle");
+    endDot.setAttribute("cx", lastPt[0]); endDot.setAttribute("cy", lastPt[1]);
+    endDot.setAttribute("r", "4");
+    endDot.setAttribute("fill", "var(--accent)");
+    endDot.setAttribute("stroke", "var(--surface-card)");
+    endDot.setAttribute("stroke-width", "2");
+    svg.appendChild(endDot);
+
+    var firstIdx = 0, lastIdx = series.length - 1, midIdx = Math.floor(lastIdx / 2);
+    [firstIdx, midIdx, lastIdx].forEach(function (i) {
+      var t = document.createElementNS(ns, "text");
+      t.setAttribute("x", xAt(i));
+      t.setAttribute("y", H - 6);
+      t.setAttribute("text-anchor", i === firstIdx ? "start" : i === lastIdx ? "end" : "middle");
+      t.setAttribute("fill", "var(--text-muted)");
+      t.setAttribute("font-size", "10");
+      t.textContent = fmtDateShort(series[i].date);
+      svg.appendChild(t);
+    });
+
+    var hoverDot = document.createElementNS(ns, "circle");
+    hoverDot.setAttribute("r", "4.5");
+    hoverDot.setAttribute("fill", "var(--accent)");
+    hoverDot.setAttribute("stroke", "var(--surface-card)");
+    hoverDot.setAttribute("stroke-width", "2");
+    hoverDot.setAttribute("opacity", "0");
+    svg.appendChild(hoverDot);
+    var crosshair = document.createElementNS(ns, "line");
+    crosshair.setAttribute("y1", PAD_T); crosshair.setAttribute("y2", PAD_T + plotH);
+    crosshair.setAttribute("stroke", "var(--baseline)");
+    crosshair.setAttribute("stroke-width", "1");
+    crosshair.setAttribute("stroke-dasharray", "3,3");
+    crosshair.setAttribute("opacity", "0");
+    svg.insertBefore(crosshair, area);
+
+    var hitArea = document.createElementNS(ns, "rect");
+    hitArea.setAttribute("x", PAD_L); hitArea.setAttribute("y", 0);
+    hitArea.setAttribute("width", plotW); hitArea.setAttribute("height", H);
+    hitArea.setAttribute("fill", "transparent");
+    svg.appendChild(hitArea);
+
+    hitArea.addEventListener("mousemove", function (evt) {
+      var rect = svg.getBoundingClientRect();
+      var scaleX = rect.width / W; // scaleY is always 1: CSS height (220px) matches viewBox height (220)
+      var relX = (evt.clientX - rect.left) / scaleX;
+      var idx = Math.round(((relX - PAD_L) / plotW) * (series.length - 1));
+      idx = Math.max(0, Math.min(series.length - 1, idx));
+      var pt = points[idx];
+      hoverDot.setAttribute("cx", pt[0]); hoverDot.setAttribute("cy", pt[1]); hoverDot.setAttribute("opacity", "1");
+      crosshair.setAttribute("x1", pt[0]); crosshair.setAttribute("x2", pt[0]); crosshair.setAttribute("opacity", "1");
+
+      tooltip.innerHTML = '<div class="t-date">' + esc(fmtDateShort(series[idx].date)) + '</div>' +
+        '<div class="t-value">' + esc(fmtMoney(series[idx].value)) + '</div>';
+      tooltip.style.opacity = "1";
+      var left = pt[0] * scaleX + 12;
+      if (left > rect.width - 110) left = pt[0] * scaleX - 108;
+      tooltip.style.left = left + "px";
+      tooltip.style.top = (pt[1] - 10) + "px";
+    });
+    hitArea.addEventListener("mouseleave", function () {
+      hoverDot.setAttribute("opacity", "0");
+      crosshair.setAttribute("opacity", "0");
+      tooltip.style.opacity = "0";
+    });
+  }
+
+  function renderCampaigns(campaigns) {
+    campaigns = campaigns || [];
+    els.campaignsBody.innerHTML = "";
+    els.campaignsEmpty.style.display = campaigns.length ? "none" : "block";
+    campaigns
+      .slice()
+      .sort(function (a, b) { return (b.spend || 0) - (a.spend || 0); })
+      .forEach(function (c) {
+        var tr = document.createElement("tr");
+        var statusClass = c.status === "ACTIVE" ? "status-active" : "status-paused";
+        var statusLabel = c.status === "ACTIVE" ? "Ativo" : c.status === "PAUSED" ? "Pausado" : (c.status || "—");
+        tr.innerHTML =
+          '<td class="name-cell"><div class="primary">' + esc(c.adset_name || c.campaign_name || "—") + '</div>' +
+          '<div class="secondary">' + esc(c.campaign_name || "") + '</div></td>' +
+          '<td class="num">' + esc(fmtMoney(c.spend)) + '</td>' +
+          '<td class="num">' + esc(c.conversions != null ? NUMBER.format(c.conversions) : "0") + '</td>' +
+          '<td class="num">' + esc(c.cpa != null ? fmtMoney(c.cpa) : "—") + '</td>' +
+          '<td class="num">' + esc(c.ctr != null ? PCT.format(c.ctr) + "%" : "—") + '</td>' +
+          '<td><span class="chip ' + statusClass + '"><span class="dot"></span>' + esc(statusLabel) + '</span></td>';
+        els.campaignsBody.appendChild(tr);
+      });
+  }
+
+  function renderActions(actions) {
+    actions = actions || [];
+    els.actionsFeed.innerHTML = "";
+    els.actionsEmpty.style.display = actions.length ? "none" : "block";
+    actions.forEach(function (a) {
+      var chipClass = a.status === "applied" ? "applied" : a.status === "rejected" ? "rejected" : "simulated";
+      var chipLabel = a.status === "applied" ? "Aplicada" : a.status === "rejected" ? "Bloqueada" : "Simulada";
+      var label = ACTION_LABELS[a.action_type] || a.action_type;
+      var valueChange = "";
+      if (a.before_value != null || a.after_value != null) {
+        valueChange = " · " + esc(a.before_value != null ? a.before_value : "—") + " → " + esc(a.after_value != null ? a.after_value : "—");
+      }
+      var div = document.createElement("div");
+      div.className = "feed-item";
+      div.innerHTML =
+        '<div class="row1"><span class="action-label">' + esc(label) + '</span>' +
+        '<span class="chip ' + chipClass + '"><span class="dot"></span>' + esc(chipLabel) + '</span></div>' +
+        '<div class="target">' + esc(a.target_name || a.target_id || "—") + esc(valueChange) + '</div>' +
+        '<div class="reasoning">' + esc(a.reasoning || "") + '</div>' +
+        (a.rejection_reason ? '<div class="rejection">Motivo do bloqueio: ' + esc(a.rejection_reason) + '</div>' : "") +
+        '<div class="foot"><span>' + esc(fmtDateTime(a.timestamp)) + ' · confiança ' + esc(Math.round((a.confidence || 0) * 100)) + '%</span>' +
+        (a.adjusted ? '<span class="adj-flag">ajustada pela guardrail</span>' : '') + '</div>';
+      els.actionsFeed.appendChild(div);
+    });
+  }
+
+  function renderRecommendations(recs) {
+    recs = recs || [];
+    els.recGrid.innerHTML = "";
+    els.recEmpty.style.display = recs.length ? "none" : "block";
+    recs.forEach(function (r) {
+      var interests = Array.isArray(r.interests) ? r.interests.join(", ") : (r.interests || "");
+      var geo = Array.isArray(r.geo_locations) ? r.geo_locations.join(", ") : (r.geo_locations || "");
+      var genderLabel = { male: "Masculino", female: "Feminino", all: "Todos" }[r.gender_targeting] || r.gender_targeting || "—";
+      var div = document.createElement("div");
+      div.className = "rec-card";
+      div.innerHTML =
+        '<div class="cat">' + esc(r.asset_category || "") + '</div>' +
+        '<h3>' + esc(r.asset_description || "—") + '</h3>' +
+        '<div class="facts">' +
+        '<span>Idade <b>' + esc(r.age_min) + '–' + esc(r.age_max) + '</b></span>' +
+        '<span>Gênero <b>' + esc(genderLabel) + '</b></span>' +
+        '<span>Orçamento <b>' + esc(fmtMoney((r.suggested_daily_budget_cents || 0) / 100)) + '/dia</b></span>' +
+        '<span>Confiança <b>' + esc(Math.round((r.confidence || 0) * 100)) + '%</b></span>' +
+        '</div>' +
+        '<div class="reasoning"><strong>Interesses:</strong> ' + esc(interests) + '<br>' +
+        '<strong>Local:</strong> ' + esc(geo) + '<br>' + esc(r.reasoning || "") + '</div>';
+      els.recGrid.appendChild(div);
+    });
+  }
+
+  function render(data, isSample) {
+    els.banner.className = "banner" + (isSample ? " show" : "");
+    renderHeader(data);
+    renderKpis(data.summary);
+    renderChart(data.spend_series);
+    renderCampaigns(data.campaigns);
+    renderActions(data.recent_actions);
+    renderRecommendations(data.recent_recommendations);
+  }
+
+  fetch("./dashboard_data.json", { cache: "no-store" })
+    .then(function (resp) { if (!resp.ok) throw new Error("no data yet"); return resp.json(); })
+    .then(function (data) { render(data, false); })
+    .catch(function () { render(SAMPLE_DATA, true); });
+})();
+</script>
