@@ -63,6 +63,31 @@ ai:
   model: "claude-opus-5"
   optimizer_effort: "high"
   audience_advisor_effort: "high"
+  # Extração de catálogo (PDF com dezenas de lotes) — tarefa mais pesada, mantém "high".
+  catalog_extractor_effort: "high"
+
+# Regras de criação de anúncio a partir de catálogo de leilão (scripts/analyze_catalog.py
+# + scripts/create_campaigns_from_drafts.py). Baseadas em faixas validadas em uso real —
+# ajuste os valores para o seu negócio, mas o formato (faixas por valor do ativo) tende a
+# funcionar bem: ativos mais caros suportam orçamento de mídia maior.
+ads:
+  # Orçamento TOTAL sugerido (até a data do leilão), em R$, por faixa de valor do ativo.
+  # "below_value" é o teto (exclusivo) da faixa; a primeira faixa em que o ativo couber é
+  # usada. Acima de todas as faixas, usa "budget_above_max_tier".
+  budget_tiers:
+    - { below_value: 300000, total_budget: 750 }
+    - { below_value: 1000000, total_budget: 2000 }
+  budget_above_max_tier: 4500
+  # Quantas parcelas destacar na copy do anúncio quando aplicável ao seu negócio (ex: 48).
+  installment_count: 48
+  highlight_installments: true
+  highlight_below_market_price: true
+  # Status inicial da campanha ao criar a partir de um rascunho aprovado. "ACTIVE" (padrão)
+  # segue o mesmo comportamento validado no Base44: por essa etapa já ter passado por
+  # aprovação humana explícita (scripts/create_campaigns_from_drafts.py --confirm), a
+  # campanha pode ir ao ar direto. Use "PAUSED" se preferir sempre revisar no Gerenciador
+  # de Anúncios antes de ativar.
+  default_campaign_status: "ACTIVE"
 
 powerbi:
   # Desligado por padrão: o pipeline funciona inteiro sem o Power BI (dashboard web +

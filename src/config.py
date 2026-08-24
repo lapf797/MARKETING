@@ -46,7 +46,18 @@ class AIConfig:
     model: str
     optimizer_effort: str
     audience_advisor_effort: str
+    catalog_extractor_effort: str
     api_key: str
+
+
+@dataclass
+class AdsConfig:
+    budget_tiers_cents: list[tuple[float, int]]
+    budget_above_max_tier_cents: int
+    installment_count: int
+    highlight_installments: bool
+    highlight_below_market_price: bool
+    default_campaign_status: str
 
 
 @dataclass
@@ -68,6 +79,7 @@ class AppConfig:
     facebook: FacebookConfig
     ai: AIConfig
     powerbi: PowerBIConfig
+    ads: AdsConfig
 
 
 def _require_env(name: str, *, required: bool = True) -> str | None:
@@ -123,6 +135,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         model=str(ai_raw["model"]),
         optimizer_effort=str(ai_raw["optimizer_effort"]),
         audience_advisor_effort=str(ai_raw["audience_advisor_effort"]),
+        catalog_extractor_effort=str(ai_raw.get("catalog_extractor_effort", ai_raw["audience_advisor_effort"])),
         api_key=_require_env("ANTHROPIC_API_KEY"),
     )
 
@@ -140,4 +153,19 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         dataset_id=_require_env("POWERBI_DATASET_ID", required=push_enabled),
     )
 
-    return AppConfig(safety=safety, facebook=facebook, ai=ai, powerbi=powerbi)
+    ads_raw = raw.get("ads", {})
+    currency_factor = safety.currency_minor_unit_factor
+    tiers_cents = [
+        (float(tier["below_value"]), int(round(float(tier["total_budget"]) * currency_factor)))
+        for tier in ads_raw.get("budget_tiers", [])
+    ]
+    ads = AdsConfig(
+        budget_tiers_cents=tiers_cents,
+        budget_above_max_tier_cents=int(round(float(ads_raw.get("budget_above_max_tier", 4500)) * currency_factor)),
+        installment_count=int(ads_raw.get("installment_count", 48)),
+        highlight_installments=bool(ads_raw.get("highlight_installments", True)),
+        highlight_below_market_price=bool(ads_raw.get("highlight_below_market_price", True)),
+        default_campaign_status=str(ads_raw.get("default_campaign_status", "ACTIVE")),
+    )
+
+    return AppConfig(safety=safety, facebook=facebook, ai=ai, powerbi=powerbi, ads=ads)

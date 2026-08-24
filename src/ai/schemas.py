@@ -57,3 +57,37 @@ class AssetListing(BaseModel):
     lot_number: str | None = None
     key_details: list[str] = Field(default_factory=list, description="Atributos curtos e objetivos úteis para segmentação (ex: '3 quartos', '90m²', 'ano 2021').")
     extraction_notes: str | None = Field(default=None, description="Observações sobre a extração: dados ausentes, ambiguidades etc.")
+
+
+class PropertyAdListing(BaseModel):
+    """Um ativo extraído de um catálogo de leilão em PDF (geralmente dezenas de lotes de
+    uma vez), já com copy de anúncio pronta e público-alvo sugerido — grava-se como
+    rascunho (src/safety/draft_log.py) para revisão humana antes de virar campanha real."""
+    lot_number: str | None = None
+    title: str
+    category: str = Field(description='Categoria curta, ex: "Imóveis", "Veículos", "Máquinas e Equipamentos".')
+    city: str | None = None
+    state: str | None = Field(default=None, description="UF (sigla de 2 letras), quando o ativo for no Brasil.")
+    price_text: str | None = Field(default=None, description="Preço/lance como aparece no catálogo (texto livre).")
+    price_value: float | None = Field(default=None, description="Valor numérico do preço/lance, quando extraível do texto.")
+    description: str = Field(description="Descrição do ativo, resumida a partir do catálogo.")
+    auction_date: str | None = Field(default=None, description="Data do leilão (YYYY-MM-DD), se encontrada no catálogo.")
+    photo_page_reference: str | None = Field(default=None, description="Referência textual de qual foto no PDF pertence a este ativo (ex: 'página 4, foto do apartamento com fachada branca') — usada apenas para o humano localizar a foto certa; não é uma URL.")
+
+    age_min: int = Field(ge=13, le=65)
+    age_max: int = Field(ge=13, le=65)
+    gender_targeting: Literal["male", "female", "all"]
+    interests: list[str] = Field(description="Interesses sugeridos para segmentação no Meta Ads (nomes; resolvidos para IDs reais na criação da campanha).")
+    audience_reasoning: str
+
+    headline: str = Field(description="Manchete do anúncio, até 40 caracteres, gancho específico deste ativo.")
+    primary_text: str = Field(description="Texto principal do anúncio, até 125 caracteres.")
+    ad_description: str = Field(description="Descrição do anúncio (link description), até 200 caracteres.")
+
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
+class CatalogAnalysis(BaseModel):
+    total_properties: int
+    summary: str
+    properties: list[PropertyAdListing]

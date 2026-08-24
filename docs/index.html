@@ -408,6 +408,18 @@
   </section>
 
   <section class="card">
+    <h2>Rascunhos de anúncios (catálogo do leilão)</h2>
+    <p class="card-sub">
+      Gerados por <code>scripts/analyze_catalog.py</code> a partir de um PDF do leilão —
+      aguardando revisão antes de virar campanha real. Aprove com
+      <code>scripts/create_campaigns_from_drafts.py --confirm</code>.
+    </p>
+    <div id="drafts-grid" class="rec-grid"></div>
+    <div id="drafts-empty" class="empty" style="display:none;">Nenhum rascunho pendente no momento.</div>
+    <div id="drafts-created" class="feed" style="margin-top:14px;"></div>
+  </section>
+
+  <section class="card">
     <h2>Recomendações de público-alvo recentes</h2>
     <p class="card-sub">Geradas sob demanda via <code>scripts/suggest_audience.py</code> para novos ativos.</p>
     <div id="rec-grid" class="rec-grid"></div>
@@ -525,7 +537,10 @@
     actionsFeed: document.getElementById("actions-feed"),
     actionsEmpty: document.getElementById("actions-empty"),
     recGrid: document.getElementById("rec-grid"),
-    recEmpty: document.getElementById("rec-empty")
+    recEmpty: document.getElementById("rec-empty"),
+    draftsGrid: document.getElementById("drafts-grid"),
+    draftsEmpty: document.getElementById("drafts-empty"),
+    draftsCreated: document.getElementById("drafts-created")
   };
 
   function esc(str) {
@@ -804,9 +819,69 @@
     renderRecommendations(data.recent_recommendations);
   }
 
+  var SAMPLE_DRAFTS = {
+    pending_count: 2,
+    pending: [
+      { draft_id: "a1b2c3d4", title: "Apartamento 2 quartos, Moema", category: "Imóveis", city: "São Paulo", state: "SP",
+        headline: "Apto 2 dorms em Moema", total_budget_cents: 200000, pause_date: "2026-10-15",
+        missing_fields: ["picture_url"] },
+      { draft_id: "e5f6a7b8", title: "Terreno 500m², Jundiaí", category: "Imóveis", city: "Jundiaí", state: "SP",
+        headline: "Terreno 500m² em Jundiaí", total_budget_cents: 75000, pause_date: "2026-10-15",
+        missing_fields: ["account_id", "page_id", "picture_url"] }
+    ],
+    recent_created: [
+      { draft_id: "9c8d7e6f", title: "Casa 3 quartos, Campinas", meta_campaign_id: "120210000000001",
+        updated_at: new Date(Date.now() - 20 * 3600e3).toISOString() }
+    ],
+    recent_errors: []
+  };
+
+  function renderDrafts(data) {
+    var pending = data.pending || [];
+    els.draftsGrid.innerHTML = "";
+    els.draftsEmpty.style.display = pending.length ? "none" : "block";
+    pending.forEach(function (d) {
+      var div = document.createElement("div");
+      div.className = "rec-card";
+      var missing = d.missing_fields || [];
+      div.innerHTML =
+        '<div class="cat">' + esc(d.category || "") + '</div>' +
+        '<h3>' + esc(d.title || "—") + '</h3>' +
+        '<div class="facts">' +
+        '<span>' + esc(d.city || "—") + (d.state ? "/" + esc(d.state) : "") + '</span>' +
+        '<span>Orçamento <b>' + esc(fmtMoney((d.total_budget_cents || 0) / 100)) + '</b></span>' +
+        '<span>Pausa em <b>' + esc(d.pause_date ? fmtDateShort(d.pause_date) : "—") + '</b></span>' +
+        '</div>' +
+        '<div class="reasoning">Manchete: “' + esc(d.headline || "") + '”</div>' +
+        (missing.length
+          ? '<div class="rec-source"><span class="chip rejected"><span class="dot"></span>faltam: ' + esc(missing.join(", ")) + '</span></div>'
+          : '<div class="rec-source"><span class="chip applied"><span class="dot"></span>pronto para aprovar</span></div>');
+      els.draftsGrid.appendChild(div);
+    });
+
+    var created = data.recent_created || [];
+    els.draftsCreated.innerHTML = created.length
+      ? '<p class="card-sub" style="margin:0 0 8px;">Criadas recentemente</p>' : "";
+    created.forEach(function (c) {
+      var item = document.createElement("div");
+      item.className = "feed-item";
+      item.innerHTML =
+        '<div class="row1"><span class="action-label">' + esc(c.title || "—") + '</span>' +
+        '<span class="chip applied"><span class="dot"></span>Criada</span></div>' +
+        '<div class="target">Campanha ' + esc(c.meta_campaign_id || "—") + '</div>' +
+        '<div class="foot"><span>' + esc(fmtDateTime(c.updated_at)) + '</span></div>';
+      els.draftsCreated.appendChild(item);
+    });
+  }
+
   fetch("./dashboard_data.json", { cache: "no-store" })
     .then(function (resp) { if (!resp.ok) throw new Error("no data yet"); return resp.json(); })
     .then(function (data) { render(data, false); })
     .catch(function () { render(SAMPLE_DATA, true); });
+
+  fetch("./drafts_data.json", { cache: "no-store" })
+    .then(function (resp) { if (!resp.ok) throw new Error("no drafts yet"); return resp.json(); })
+    .then(function (data) { renderDrafts(data); })
+    .catch(function () { renderDrafts(SAMPLE_DRAFTS); });
 })();
 </script>

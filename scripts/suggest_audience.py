@@ -33,6 +33,7 @@ from src.ai.audience_advisor import recommend_audience
 from src.ai.listing_extractor import extract_listing
 from src.config import load_config
 from src.facebook_ads.client import FacebookAdsClient
+from src.facebook_ads.targeting import resolve_geo_locations_free_text, resolve_interests
 from src.facebook_ads.insights import fetch_audience_breakdown
 from src.reporting.powerbi_push import PowerBIClient
 from src.safety.recommendation_log import log_recommendation
@@ -157,20 +158,25 @@ def run_suggestion(*, url: str | None, category: str | None, description: str | 
     if no_create:
         return
 
-    print("\nCriando campanha e adset PAUSADOS no Facebook Ads para revisão...")
+    print("\nResolvendo interesses e localização para os IDs reais da Meta...")
+    interests = resolve_interests(fb_client, recommendation.interests)
+    geo = resolve_geo_locations_free_text(fb_client, recommendation.geo_locations)
+
+    print("Criando campanha e adset PAUSADOS no Facebook Ads para revisão...")
     campaign = fb_client.create_campaign(
         name=f"[IA] {category} - {description[:60]}",
-        objective="OUTCOME_LEADS",
+        objective="OUTCOME_TRAFFIC",
+        special_ad_categories=[],
     )
     targeting = {
         "age_min": recommendation.age_min,
         "age_max": recommendation.age_max,
         "genders": _GENDER_CODES[recommendation.gender_targeting],
-        # geo_locations e interesses aqui são placeholders — o Meta exige IDs específicos
-        # (via GET /search?type=adgeolocation e type=adinterest), não nomes livres.
-        # Resolva-os no Gerenciador de Anúncios antes de ativar (veja docs/SETUP_FACEBOOK.md).
-        "geo_locations": {"custom_locations": []},
+        "geo_locations": geo,
+        "targeting_automation": {"advantage_audience": 0},
     }
+    if interests:
+        targeting["flexible_spec"] = [{"interests": interests}]
     adset = fb_client.create_adset(
         campaign_id=campaign["id"], name=f"[IA] Publico sugerido - {description[:40]}",
         daily_budget_cents=recommendation.suggested_daily_budget_cents,
@@ -178,11 +184,12 @@ def run_suggestion(*, url: str | None, category: str | None, description: str | 
     )
     print(f"Campanha criada (PAUSADA): {campaign['id']}")
     print(f"Adset criado (PAUSADO): {adset['id']}")
-    print(f"Interesses sugeridos pela IA (ainda não aplicados — precisam de IDs reais): "
-          f"{', '.join(recommendation.interests)}")
-    print("\nIMPORTANTE: revise a segmentação geográfica e os interesses no Gerenciador de "
-          "Anúncios antes de ativar — a IA sugere por nome, mas o Meta exige IDs específicos "
-          "de interesse/localização (ver docs/SETUP_FACEBOOK.md).")
+    print(f"Interesses aplicados: {', '.join(i['name'] for i in interests) or 'nenhum encontrado'}")
+    print(f"Geolocalização aplicada: {geo}")
+    print("\nRevise a segmentação e o criativo no Gerenciador de Anúncios antes de ativar — "
+          "este script cria campanha e adset, mas ainda não o criativo/anúncio (foto e texto "
+          "finais). Para o fluxo completo com criativo pronto, veja "
+          "\"Criar anúncios a partir do catálogo do leilão\" no README.")
 
 
 def main() -> None:

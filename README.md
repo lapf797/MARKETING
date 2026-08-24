@@ -1,22 +1,91 @@
 # Marketing — Leilões no Facebook Ads com IA
 
 Sistema de marketing automatizado para promover ativos de leilão (imóveis, veículos,
-máquinas, equipamentos etc.) no Facebook Ads, com três camadas:
+máquinas, equipamentos etc.) no Facebook Ads, com quatro camadas:
 
-1. **Recomendação de público-alvo** — para cada novo ativo, a Claude analisa o histórico
-   de performance da conta e sugere o público-alvo ideal.
-2. **Otimização diária automática** — todo dia, a Claude analisa a performance recente de
+1. **Criação de anúncios a partir do catálogo do leilão** — envie o PDF do catálogo
+   inteiro (dezenas de lotes de uma vez); a Claude lê o documento (texto e fotos, com
+   visão nativa de PDF — sem nenhum código de extração de imagem escrito à mão), extrai
+   cada ativo e já gera a copy do anúncio, o público-alvo e o orçamento sugerido. Cada
+   extração vira um **rascunho** para revisão humana antes de qualquer chamada real ao
+   Facebook.
+2. **Recomendação de público-alvo avulsa** — para um único ativo (por link ou dados
+   manuais), a Claude analisa o histórico de performance da conta e sugere o público ideal.
+3. **Otimização diária automática** — todo dia, a Claude analisa a performance recente de
    todas as campanhas ativas e propõe ajustes (orçamento, pausas, retomadas). Essas ações
    passam por um conjunto de **guardrails de segurança** (limites configuráveis por você)
    antes de serem aplicadas de verdade no Facebook Ads.
-3. **Dashboard web** — um painel estático (`docs/index.html`, publicável via GitHub Pages)
-   mostra gasto, conversões, a decisão da IA de hoje e o que as guardrails aprovaram ou
-   bloquearam — sem precisar de nenhuma ferramenta externa.
-4. **Power BI em tempo real** — métricas de performance, ações aplicadas e recomendações de
-   público são enviadas continuamente para um dataset de push do Power BI, para relatórios
-   mais robustos e compartilhamento com a equipe.
+4. **Dashboard web + Power BI** — um painel estático (`docs/index.html`, publicável via
+   GitHub Pages) mostra gasto, conversões, decisões da IA, rascunhos pendentes de
+   aprovação e recomendações — sem precisar de nenhuma ferramenta externa. O Power BI
+   (opcional) recebe os mesmos dados em tempo real, para relatórios mais robustos e
+   compartilhamento com a equipe.
 
-Tudo isso roda sozinho via GitHub Actions, uma vez por dia, sem precisar de servidor.
+Tudo isso roda sozinho via GitHub Actions, sem precisar de servidor.
+
+> **Origem:** a criação a partir de catálogo (item 1) portou para cá a fórmula de copy, as
+> faixas de orçamento e a lógica de segmentação (interesses/geolocalização resolvidos em
+> IDs reais da Meta, `end_time` automático na data do leilão) de um protótipo que já rodava
+> em produção em Base44 — trocando o `InvokeLLM` genérico do Base44 pela Claude e mantendo
+> as guardrails de segurança e o dashboard já existentes neste repositório. Duas partes
+> daquele protótipo ficaram de fora por enquanto — veja "Próximos passos sugeridos".
+
+## Criar anúncios a partir do catálogo do leilão
+
+Este é o fluxo pensado para a maioria dos seus anúncios. Dois passos, dois scripts —
+nenhum deles precisa de conta de anúncios configurada antes de você já ver os rascunhos.
+
+### 1. Analisar o catálogo (não toca no Facebook)
+
+```bash
+python scripts/analyze_catalog.py \
+  --pdf caminho/ou/url/do/catalogo.pdf \
+  --link-url "https://milanleiloes.com.br/leilao/imoveis" \
+  --account-id act_123456 --page-id 987654321
+```
+
+A Claude lê o PDF inteiro (texto e fotos) numa única chamada e devolve, para cada ativo:
+categoria, cidade/UF, preço, público-alvo (idade/gênero/interesses), e a copy pronta do
+anúncio (headline até 40 caracteres, texto principal até 125, descrição até 200) — seguindo
+uma fórmula de copywriting testada em uso real (gancho de preço abaixo do mercado +
+parcelamento, sem clichês, sem caixa alta). O orçamento total e a data de pausa **não** são
+decididos pela IA: são calculados por código determinístico
+(`src/ai/budget_rules.py`), por faixa de valor do ativo — ajustável em
+`config/settings.yaml` → `ads.budget_tiers`.
+
+Cada ativo extraído vira um **rascunho** em `logs/ad_drafts.json` (visível também no
+dashboard, seção "Rascunhos de anúncios") — nada é criado no Facebook nesta etapa.
+
+### 2. Revisar e aprovar
+
+Cada rascunho precisa de uma foto (o sistema não extrai/associa imagens automaticamente —
+veja "Limitações conhecidas") e, se não foram passados no passo 1, de conta e página:
+
+```bash
+python scripts/create_campaigns_from_drafts.py --draft-id <id> --picture-url "https://.../foto.jpg"
+```
+
+Revise o que seria criado (sem aplicar nada):
+
+```bash
+python scripts/create_campaigns_from_drafts.py
+```
+
+Aprove — cria de verdade a campanha, o conjunto de anúncios, o criativo e o anúncio no
+Facebook (segmentação com interesses e geolocalização já resolvidos para os IDs reais que a
+Meta exige, orçamento diário = orçamento total ÷ dias até o leilão, e o anúncio programado
+para pausar sozinho na data do leilão via `end_time` nativo do Facebook):
+
+```bash
+python scripts/create_campaigns_from_drafts.py --confirm          # todos os rascunhos prontos
+python scripts/create_campaigns_from_drafts.py --draft-id <id> --confirm   # só um
+python scripts/create_campaigns_from_drafts.py --draft-id <id> --reject    # descarta sem criar
+```
+
+Por padrão a campanha já nasce **ativa** (`ads.default_campaign_status` em
+`config/settings.yaml`) — igual ao comportamento validado no protótipo anterior, já que essa
+etapa em si *é* a aprovação humana. Mude para `"PAUSED"` se preferir sempre revisar no
+Gerenciador de Anúncios antes de ativar.
 
 ## Como funciona (visão geral)
 
@@ -48,8 +117,9 @@ scripts/run_daily_optimization.py
 ```
 
 Separadamente, `scripts/suggest_audience.py` é usado sob demanda sempre que você tem um
-**novo ativo** para anunciar. Como a maioria dos seus anúncios vem de leilões, o jeito mais
-rápido é passar o link da página do lote:
+**novo ativo avulso** para anunciar (fora de um catálogo em PDF — para catálogos, use
+"Criar anúncios a partir do catálogo do leilão" acima). O jeito mais rápido é passar o link
+da página do lote:
 
 ```bash
 python scripts/suggest_audience.py --url "https://milanleiloes.com.br/leilao/imoveis/15498" --budget 100
@@ -95,13 +165,15 @@ a seguir.
 ## Estrutura do projeto
 
 ```
-config/settings.yaml           # limites de segurança e parâmetros (versionado, sem segredos)
-src/facebook_ads/               # cliente da Graph API + coleta de métricas
-src/ai/                         # prompts e chamadas à Claude (recomendação + otimização)
-src/safety/                     # guardrails + trilha de auditoria + log de recomendações
+config/settings.yaml           # limites de segurança, orçamento e parâmetros (sem segredos)
+src/facebook_ads/               # cliente da Graph API + coleta de métricas + resolução de segmentação
+src/ai/                         # prompts e chamadas à Claude (catálogo, recomendação, otimização)
+src/safety/                     # guardrails + trilha de auditoria + rascunhos + log de recomendações
 src/reporting/                  # push para o Power BI
+scripts/analyze_catalog.py             # PDF do catálogo -> rascunhos de anúncio (não toca no Facebook)
+scripts/create_campaigns_from_drafts.py  # rascunhos aprovados -> campanhas reais no Facebook
 scripts/run_daily_optimization.py   # roda todo dia via GitHub Actions
-scripts/suggest_audience.py         # roda sob demanda para um novo ativo (CLI local)
+scripts/suggest_audience.py         # roda sob demanda para um ativo avulso (CLI local)
 scripts/run_suggest_audience_from_env.py  # mesma coisa, via variáveis de ambiente (GitHub Actions)
 scripts/setup_powerbi_dataset.py    # roda uma única vez, na configuração inicial
 scripts/rollback.py                 # reverte manualmente a última ação em um alvo
@@ -109,10 +181,12 @@ scripts/rollback.py                 # reverte manualmente a última ação em um
 .github/workflows/suggest-audience.yml     # dispara scripts/suggest_audience.py pela interface do GitHub
 .github/workflows/ci.yml                   # roda os testes em cada PR
 docs/index.html                 # dashboard web (publicável via GitHub Pages)
-docs/dashboard_data.json        # dados que alimentam o dashboard (gerado pelo pipeline)
+docs/dashboard_data.json        # dados do pipeline diário que alimentam o dashboard
+docs/drafts_data.json           # rascunhos de anúncio que alimentam o dashboard
 logs/audit_log.jsonl            # trilha de auditoria (append-only, versionada no git)
-logs/audience_recommendations.jsonl   # histórico de recomendações de público
-tests/                          # testes das guardrails de segurança
+logs/audience_recommendations.jsonl   # histórico de recomendações de público avulsas
+logs/ad_drafts.json             # rascunhos de anúncio do catálogo (mutável — status muda com a revisão)
+tests/                          # testes das guardrails, regras de orçamento e rascunhos
 ```
 
 ## Configuração inicial
@@ -263,10 +337,19 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
 
 ## Limitações conhecidas
 
-- `scripts/suggest_audience.py` cria a campanha **pausada** e sugere interesses por nome —
-  o Meta exige IDs específicos de segmentação (busca via Graph API), então revise e resolva
-  os interesses/localizações no Gerenciador de Anúncios antes de ativar. Isso é intencional:
-  criar uma campanha nova com orçamento real sem revisão humana é um risco desnecessário.
+- **Sem extração/associação automática de fotos.** Ao contrário do texto, o sistema não
+  extrai imagens do PDF nem gera uma imagem com máscara/selo de marca sobre a foto do
+  ativo — cada rascunho precisa de uma `picture_url` (uma URL pública de imagem) anexada
+  manualmente antes de aprovar (`create_campaigns_from_drafts.py --draft-id <id>
+  --picture-url ...`). A IA aponta em `photo_page_reference` onde a foto certa está no PDF,
+  para facilitar localizá-la. Ver "Próximos passos" para o que geração de imagem
+  automática exigiria.
+- `scripts/suggest_audience.py` (o fluxo avulso, sem catálogo) cria campanha e adset com
+  segmentação já resolvida em IDs reais da Meta, mas **não cria o criativo/anúncio** — só
+  o fluxo de catálogo (`analyze_catalog.py` + `create_campaigns_from_drafts.py`) vai até o
+  anúncio completo, pronto para veicular. Isso é intencional: criar um anúncio pronto para
+  veicular sem revisão humana explícita é um risco desnecessário fora do fluxo com
+  aprovação por rascunho.
 - O otimizador diário só age sobre campanhas/adsets já ativos com histórico — campanhas
   novíssimas (sem gasto) não sofrem ação até acumularem dados mínimos.
 - Se a campanha usa **Orçamento de Campanha Otimizado (CBO)**, o orçamento é controlado no
@@ -286,14 +369,29 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
 
 ## Próximos passos sugeridos
 
+Ficaram de fora desta rodada, por escopo/tempo — nenhum deles é grande o suficiente para
+travar o uso do que já existe, mas valem uma rodada dedicada quando fizer sentido:
+
+- **Geração automática de imagem do anúncio** (extrair fotos do PDF/página e compor uma
+  máscara de marca — selo de preço, parcelamento, data do leilão — sobre a foto). É edição
+  de imagem com escopo próprio; hoje cada rascunho depende de uma `picture_url` anexada
+  manualmente.
+- **Otimizador de posicionamento/demografia sem mexer em orçamento** — um segundo tipo de
+  ajuste diário, complementar ao atual (que realoca orçamento): manter só os
+  posicionamentos e a faixa etária/gênero que já provaram CPC mais barato, com o mesmo
+  gasto. É uma alavanca mais conservadora que vale considerar ao lado das guardrails de
+  orçamento existentes.
+- **Públicos semelhantes (lookalike)** a partir da base de leads/arrematantes anteriores,
+  combinados aos interesses na segmentação — hoje a segmentação usa só interesses e
+  geolocalização.
+- Workflow do GitHub Actions (`workflow_dispatch`) para `analyze_catalog.py` e
+  `create_campaigns_from_drafts.py`, nos moldes de `suggest-audience.yml` — hoje esses dois
+  só rodam localmente (o PDF do catálogo precisaria estar hospedado numa URL, já que
+  formulários do GitHub Actions não aceitam upload de arquivo).
 - Criar relatórios/dashboards no Power BI em cima das tabelas `CampaignPerformance`,
   `OptimizerActions` e `AudienceRecommendations`.
-- Expandir os testes (`tests/`) conforme o sistema evoluir — hoje cobrem o núcleo mais
-  crítico (guardrails de orçamento).
 - Considerar alertas (e-mail/Slack) quando a IA sinalizar `flag_for_audience_refresh` ou
   quando muitas ações forem rejeitadas em sequência — hoje isso só aparece no log de
   execução do GitHub Actions.
-- Processar vários links de leilão de uma vez (lista de URLs, ou a página de listagem
-  completa do site do leilão) em vez de um lote por execução do `suggest_audience.py`.
-- Usar a data de encerramento do leilão (`auction_end_at`, já extraída mas ainda não usada
-  na lógica) para o otimizador diário priorizar ou acelerar ajustes em lotes perto do fim.
+- Usar a data de encerramento do leilão para o otimizador diário priorizar ou acelerar
+  ajustes em campanhas perto do fim do prazo.

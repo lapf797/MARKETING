@@ -156,7 +156,7 @@ class FacebookAdsClient:
     def create_adset(self, *, campaign_id: str, name: str, daily_budget_cents: int,
                       targeting: dict, optimization_goal: str, billing_event: str,
                       bid_strategy: str = "LOWEST_COST_WITHOUT_CAP", status: str = "PAUSED",
-                      promoted_object: dict | None = None) -> dict:
+                      promoted_object: dict | None = None, end_time: str | None = None) -> dict:
         data: dict[str, Any] = {
             "campaign_id": campaign_id,
             "name": name,
@@ -169,4 +169,43 @@ class FacebookAdsClient:
         }
         if promoted_object:
             data["promoted_object"] = json.dumps(promoted_object)
+        if end_time:
+            data["end_time"] = end_time
         return self._post(f"{self.ad_account_id}/adsets", data)
+
+    def create_ad_creative(self, *, name: str, page_id: str, link: str, message: str,
+                            headline: str, description: str, picture_url: str | None = None) -> dict:
+        link_data: dict[str, Any] = {
+            "message": message,
+            "link": link,
+            "name": headline,
+            "description": description,
+            "call_to_action": {"type": "LEARN_MORE", "value": {"link": link}},
+        }
+        if picture_url:
+            link_data["picture"] = picture_url
+        data = {
+            "name": name,
+            "object_story_spec": json.dumps({"link_data": link_data, "page_id": page_id}),
+        }
+        return self._post(f"{self.ad_account_id}/adcreatives", data)
+
+    def create_ad(self, *, name: str, adset_id: str, creative_id: str, status: str = "PAUSED") -> dict:
+        data = {
+            "name": name,
+            "adset_id": adset_id,
+            "creative": json.dumps({"creative_id": creative_id}),
+            "status": status,
+        }
+        return self._post(f"{self.ad_account_id}/ads", data)
+
+    # ------------------------------------------------------------- segmentação
+
+    def search(self, search_type: str, query: str, *, extra_params: dict[str, Any] | None = None,
+               limit: int = 10) -> list[dict]:
+        """Busca genérica no endpoint /search da Graph API — usada para resolver nomes
+        livres (interesses, localizações) em IDs reais que a Meta aceita em targeting."""
+        params: dict[str, Any] = {"type": search_type, "q": query, "limit": limit}
+        params.update(extra_params or {})
+        payload = self._get("search", params)
+        return payload.get("data", [])
