@@ -1,0 +1,52 @@
+name: Otimizacao diaria de campanhas (Facebook Ads)
+
+on:
+  schedule:
+    # 09:00 UTC = 06:00 no horario de Brasilia (ajuste conforme necessario).
+    # So dispara automaticamente no branch padrao do repositorio.
+    - cron: "0 9 * * *"
+  workflow_dispatch: {}
+
+permissions:
+  contents: write
+
+concurrency:
+  group: daily-optimization
+  cancel-in-progress: false
+
+jobs:
+  optimize:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Rodar otimizacao diaria
+        env:
+          FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}
+          FB_APP_ID: ${{ secrets.FB_APP_ID }}
+          FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          POWERBI_TENANT_ID: ${{ secrets.POWERBI_TENANT_ID }}
+          POWERBI_CLIENT_ID: ${{ secrets.POWERBI_CLIENT_ID }}
+          POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
+          POWERBI_WORKSPACE_ID: ${{ secrets.POWERBI_WORKSPACE_ID }}
+          POWERBI_DATASET_ID: ${{ secrets.POWERBI_DATASET_ID }}
+        run: python scripts/run_daily_optimization.py
+
+      - name: Commit da trilha de auditoria
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add logs/audit_log.jsonl
+          git diff --cached --quiet || git commit -m "chore: registro de auditoria da otimizacao diaria"
+          git push

@@ -1,0 +1,71 @@
+# Configuração do sistema de marketing automatizado (Facebook Ads + IA + Power BI).
+# Este arquivo é versionado no git — não contém segredos, só limites e parâmetros.
+# Segredos (tokens, chaves de API) ficam em variáveis de ambiente / Secrets do GitHub Actions
+# (veja .env.example).
+
+safety:
+  # IMPORTANTE: comece com dry_run true. Rode o workflow algumas vezes, revise
+  # logs/audit_log.jsonl e o Power BI, e só então mude para false para permitir
+  # mudanças reais nas campanhas.
+  dry_run: true
+
+  # Variação máxima de orçamento (para cima ou para baixo) que o sistema pode aplicar
+  # a um único adset/campanha em uma única execução diária. Propostas maiores da IA
+  # são automaticamente limitadas a este percentual, nunca rejeitadas por completo.
+  max_budget_change_pct_per_day: 20
+
+  # Ignora propostas de mudança de orçamento menores que este percentual (evita "ruído").
+  min_budget_change_pct_to_act: 5
+
+  # Gasto mínimo (em centavos) no período analisado antes do sistema poder agir sobre
+  # um adset/campanha — evita decisões automáticas com poucos dados.
+  min_spend_before_action_cents: 5000
+
+  # Tempo mínimo (em horas) entre duas mudanças automáticas no mesmo adset/campanha.
+  cooldown_hours_between_changes: 20
+
+  # "Raio de explosão": no máximo essa quantidade de ações por execução diária.
+  max_actions_per_run: 15
+  max_pauses_per_run: 5
+
+  # TETO MÁXIMO da soma dos orçamentos diários de todos os adsets/campanhas ativos da
+  # conta, em centavos. Nenhuma ação de aumento de orçamento pode ultrapassar este teto.
+  # AJUSTE PARA O SEU ORÇAMENTO MENSAL REAL ANTES DE DESLIGAR O DRY_RUN.
+  # Exemplo: R$ 5.000,00/dia = 500000
+  account_daily_budget_cap_cents: 500000
+
+  # Confiança mínima (0 a 1) que a IA precisa reportar para uma ação ser considerada.
+  require_ai_confidence: 0.6
+
+  # Quantas unidades monetárias menores (centavos) equivalem a 1 unidade da moeda da
+  # conta. 100 para a maioria das moedas (BRL, USD, EUR); ajuste se sua conta usar
+  # uma moeda sem centavos (ex: JPY = 1).
+  currency_minor_unit_factor: 100
+
+  pause_thresholds:
+    # CPA acima deste valor (em centavos) é candidato a pausa, desde que haja
+    # conversões suficientes para confiar no número.
+    max_cpa_cents: 15000
+    min_conversions_for_reliable_cpa: 3
+    # Frequência acima deste valor sinaliza fadiga de criativo/público.
+    max_frequency: 4.0
+
+facebook:
+  api_version: "v23.0"
+  # Quantos dias de histórico buscar a cada execução diária.
+  insights_lookback_days: 14
+  # Tipo de conversão ("action_type" da Graph API) usado para calcular CPA — ajuste para
+  # o resultado que representa valor real para o seu negócio (lead, compra, etc.).
+  # Veja docs/SETUP_FACEBOOK.md para como descobrir o valor exato para a sua conta.
+  conversion_action_type: "lead"
+
+ai:
+  model: "claude-opus-5"
+  optimizer_effort: "high"
+  audience_advisor_effort: "high"
+
+powerbi:
+  push_enabled: true
+  table_campaign_metrics: "CampaignPerformance"
+  table_actions: "OptimizerActions"
+  table_audience: "AudienceRecommendations"
