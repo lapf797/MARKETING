@@ -37,3 +37,23 @@ class OptimizationAction(BaseModel):
 class OptimizationPlan(BaseModel):
     summary: str
     actions: list[OptimizationAction]
+
+
+class AssetListing(BaseModel):
+    """Dados de um lote de leilão extraídos de uma página web pela IA. Campos de
+    conteúdo são opcionais porque a extração pode falhar parcialmente ou totalmente
+    (página fora do ar, exige login, não é um lote de leilão etc.) — sempre confira
+    "success" antes de usar os demais campos."""
+    source_url: str
+    success: bool = Field(description="False se a página não pôde ser acessada ou não continha um lote de leilão.")
+    error_message: str | None = Field(default=None, description="Motivo da falha, preenchido apenas quando success=false.")
+    title: str | None = None
+    category: str | None = Field(default=None, description='Categoria curta e genérica, ex: "Imóveis", "Veículos", "Máquinas e Equipamentos".')
+    description: str | None = Field(default=None, description="Descrição do lote em texto corrido, como aparece na página.")
+    location: str | None = Field(default=None, description="Cidade/UF ou endereço do ativo.")
+    estimated_value: float | None = Field(default=None, description="Valor de avaliação/mercado do ativo, se informado.")
+    starting_bid: float | None = Field(default=None, description="Lance mínimo/inicial do leilão, se informado.")
+    auction_end_at: str | None = Field(default=None, description="Data/hora de encerramento do leilão, como texto, se informado.")
+    lot_number: str | None = None
+    key_details: list[str] = Field(default_factory=list, description="Atributos curtos e objetivos úteis para segmentação (ex: '3 quartos', '90m²', 'ano 2021').")
+    extraction_notes: str | None = Field(default=None, description="Observações sobre a extração: dados ausentes, ambiguidades etc.")

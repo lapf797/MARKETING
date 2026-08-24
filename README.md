@@ -48,9 +48,22 @@ scripts/run_daily_optimization.py
 ```
 
 Separadamente, `scripts/suggest_audience.py` é usado sob demanda sempre que você tem um
-**novo ativo** para anunciar: a IA sugere o público-alvo, registra a recomendação (dashboard
-+ Power BI) e cria um rascunho de campanha **pausada** no Facebook Ads para sua revisão antes
-de ativar.
+**novo ativo** para anunciar. Como a maioria dos seus anúncios vem de leilões, o jeito mais
+rápido é passar o link da página do lote:
+
+```bash
+python scripts/suggest_audience.py --url "https://milanleiloes.com.br/leilao/imoveis/15498" --budget 100
+```
+
+A IA lê a página sozinha (usa a ferramenta de busca na web da própria Claude, que roda nos
+servidores da Anthropic — não depende de nada instalado localmente), extrai categoria,
+descrição, localização e valor do lote, mostra tudo no terminal para você conferir, gera a
+recomendação de público, registra tudo (dashboard + Power BI) e cria um rascunho de campanha
+**pausada** no Facebook Ads para sua revisão antes de ativar. Se a extração falhar ou vier
+incompleta (site fora do ar, layout incomum, exige login), complete manualmente com
+`--category`/`--description`/`--location`/`--value` — essas flags também servem para
+*corrigir* um campo específico que a IA leu errado, mesmo usando `--url`. Sem link, dá para
+usar só as flags manuais, como antes.
 
 ## Estrutura do projeto
 
@@ -220,6 +233,14 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
   setup.
 - O dashboard (`docs/index.html`) atualiza uma vez por dia, junto com a execução do
   workflow — não é "ao vivo" minuto a minuto. Para isso, use o Power BI.
+- A extração via `--url` (`src/ai/listing_extractor.py`) foi construída e testada com dados
+  simulados, mas **não pôde ser testada contra um site real de leilão** — o ambiente onde
+  este projeto foi desenvolvido não tem acesso geral à internet. A extração depende da
+  ferramenta de busca na web da Claude conseguir acessar e ler a página; sites que exigem
+  login, têm proteção anti-bot agressiva, ou renderizam o conteúdo só via JavaScript pesado
+  podem não funcionar bem. Teste com uma URL real assim que configurar o `ANTHROPIC_API_KEY`
+  — se a extração falhar ou vier incompleta para o seu site de leilão, o comando informa o
+  motivo e você pode completar manualmente com `--category`/`--description`/`--location`.
 
 ## Próximos passos sugeridos
 
@@ -230,3 +251,7 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
 - Considerar alertas (e-mail/Slack) quando a IA sinalizar `flag_for_audience_refresh` ou
   quando muitas ações forem rejeitadas em sequência — hoje isso só aparece no log de
   execução do GitHub Actions.
+- Processar vários links de leilão de uma vez (lista de URLs, ou a página de listagem
+  completa do site do leilão) em vez de um lote por execução do `suggest_audience.py`.
+- Usar a data de encerramento do leilão (`auction_end_at`, já extraída mas ainda não usada
+  na lógica) para o otimizador diário priorizar ou acelerar ajustes em lotes perto do fim.

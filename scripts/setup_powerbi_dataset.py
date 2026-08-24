@@ -66,6 +66,7 @@ def build_dataset_schema(config: AppConfig) -> dict:
                     {"name": "timestamp", "dataType": "DateTime"},
                     {"name": "asset_category", "dataType": "String"},
                     {"name": "asset_description", "dataType": "String"},
+                    {"name": "source_url", "dataType": "String"},
                     {"name": "age_min", "dataType": "Int64"},
                     {"name": "age_max", "dataType": "Int64"},
                     {"name": "gender_targeting", "dataType": "String"},

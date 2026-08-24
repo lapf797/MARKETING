@@ -14,13 +14,14 @@ DEFAULT_LOG_PATH = Path("logs/audience_recommendations.jsonl")
 
 
 def log_recommendation(*, asset_category: str, asset_description: str, target_location: str,
-                        recommendation: AudienceRecommendation,
+                        recommendation: AudienceRecommendation, source_url: str | None = None,
                         log_path: Path = DEFAULT_LOG_PATH) -> dict[str, Any]:
     entry = {
         "timestamp": datetime.now(timezone.utc).isoformat(),
         "asset_category": asset_category,
         "asset_description": asset_description,
         "target_location": target_location,
+        "source_url": source_url,
         **recommendation.model_dump(),
     }
     log_path.parent.mkdir(parents=True, exist_ok=True)

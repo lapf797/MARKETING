@@ -301,6 +301,9 @@
   .rec-card .facts { display: flex; flex-wrap: wrap; gap: 6px 14px; font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; }
   .rec-card .facts b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
   .rec-card .reasoning { font-size: 12px; color: var(--text-secondary); line-height: 1.45; }
+  .rec-card .rec-source { margin-top: 8px; }
+  .rec-card .rec-source a { font-size: 12px; font-weight: 600; text-decoration: none; }
+  .rec-card .rec-source a:hover { text-decoration: underline; }
 
   .empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 
@@ -492,7 +495,8 @@
         asset_description: "Apartamento 3 quartos, Zona Sul, 90m²", age_min: 30, age_max: 55,
         gender_targeting: "all", interests: ["Real estate", "Investimentos", "Compradores de imóveis"],
         geo_locations: ["São Paulo, SP (raio 25km)"], suggested_daily_budget_cents: 20000, confidence: 0.79,
-        reasoning: "Perfil semelhante às campanhas de melhor CPA da conta nos últimos 90 dias, mesma faixa etária e região."
+        reasoning: "Perfil semelhante às campanhas de melhor CPA da conta nos últimos 90 dias, mesma faixa etária e região.",
+        source_url: "https://milanleiloes.com.br/leilao/imoveis/15498"
       },
       {
         timestamp: new Date(Date.now() - 70 * 3600e3).toISOString(), asset_category: "Veículos",
@@ -771,11 +775,12 @@
       var interests = Array.isArray(r.interests) ? r.interests.join(", ") : (r.interests || "");
       var geo = Array.isArray(r.geo_locations) ? r.geo_locations.join(", ") : (r.geo_locations || "");
       var genderLabel = { male: "Masculino", female: "Feminino", all: "Todos" }[r.gender_targeting] || r.gender_targeting || "—";
+      var titleLine = (r.asset_description || "—").split("\n")[0];
       var div = document.createElement("div");
       div.className = "rec-card";
       div.innerHTML =
         '<div class="cat">' + esc(r.asset_category || "") + '</div>' +
-        '<h3>' + esc(r.asset_description || "—") + '</h3>' +
+        '<h3>' + esc(titleLine) + '</h3>' +
         '<div class="facts">' +
         '<span>Idade <b>' + esc(r.age_min) + '–' + esc(r.age_max) + '</b></span>' +
         '<span>Gênero <b>' + esc(genderLabel) + '</b></span>' +
@@ -783,7 +788,8 @@
         '<span>Confiança <b>' + esc(Math.round((r.confidence || 0) * 100)) + '%</b></span>' +
         '</div>' +
         '<div class="reasoning"><strong>Interesses:</strong> ' + esc(interests) + '<br>' +
-        '<strong>Local:</strong> ' + esc(geo) + '<br>' + esc(r.reasoning || "") + '</div>';
+        '<strong>Local:</strong> ' + esc(geo) + '<br>' + esc(r.reasoning || "") + '</div>' +
+        (r.source_url ? '<div class="rec-source"><a href="' + esc(r.source_url) + '" target="_blank" rel="noopener noreferrer">Ver anúncio original ↗</a></div>' : "");
       els.recGrid.appendChild(div);
     });
   }
