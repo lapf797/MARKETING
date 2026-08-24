@@ -65,7 +65,10 @@ ai:
   audience_advisor_effort: "high"
 
 powerbi:
-  push_enabled: true
+  # Desligado por padrão: o pipeline funciona inteiro sem o Power BI (dashboard web +
+  # logs continuam registrando tudo). Depois de configurar o Azure AD e os secrets
+  # (docs/SETUP_POWERBI.md), mude para true para ligar o envio em tempo real.
+  push_enabled: false
   table_campaign_metrics: "CampaignPerformance"
   table_actions: "OptimizerActions"
   table_audience: "AudienceRecommendations"

@@ -65,6 +65,33 @@ incompleta (site fora do ar, layout incomum, exige login), complete manualmente 
 *corrigir* um campo específico que a IA leu errado, mesmo usando `--url`. Sem link, dá para
 usar só as flags manuais, como antes.
 
+## Caminho rápido: testar agora pelo GitHub, sem instalar nada
+
+Você não precisa de Python, git, nem terminal para começar a testar de verdade — dá para
+disparar tudo pela própria interface do GitHub. O Power BI é opcional e vem desligado por
+padrão (`config/settings.yaml` → `powerbi.push_enabled: false`), então só precisa das
+credenciais que você já tem (Facebook + Anthropic).
+
+1. No repositório no GitHub, vá em **Settings → Secrets and variables → Actions → New
+   repository secret** e cadastre, um de cada vez: `FB_ACCESS_TOKEN`, `FB_AD_ACCOUNT_ID`,
+   `FB_APP_ID`, `FB_APP_SECRET`, `ANTHROPIC_API_KEY`.
+2. Vá na aba **Actions** do repositório. Na lista à esquerda, escolha um dos dois workflows:
+   - **"Sugerir publico-alvo (sob demanda)"** — para testar com o link de um leilão real.
+   - **"Otimizacao diaria de campanhas (Facebook Ads)"** — para testar a análise e otimização
+     das campanhas já ativas na sua conta (sempre em modo simulação por enquanto, já que
+     `safety.dry_run` começa `true`).
+3. Clique em **Run workflow**. No campo **Use workflow from**, troque para o branch
+   `claude/facebook-ads-marketing-system-66a3tq` (o workflow ainda não está no branch
+   principal). Preencha os campos do formulário (ex: o link do leilão e o orçamento) e
+   clique em **Run workflow** de novo para confirmar.
+4. Acompanhe a execução clicando nela na lista — o log mostra tudo: o que a IA extraiu da
+   página, o que ela recomendou, e (no caso da otimização diária) o que as guardrails
+   aprovaram ou bloquearam.
+
+Depois que tiver testado o suficiente, os próximos passos (instalação local opcional,
+GitHub Pages para o dashboard, Power BI, e finalmente desligar o dry-run) estão detalhados
+a seguir.
+
 ## Estrutura do projeto
 
 ```
@@ -74,10 +101,12 @@ src/ai/                         # prompts e chamadas à Claude (recomendação +
 src/safety/                     # guardrails + trilha de auditoria + log de recomendações
 src/reporting/                  # push para o Power BI
 scripts/run_daily_optimization.py   # roda todo dia via GitHub Actions
-scripts/suggest_audience.py         # roda sob demanda para um novo ativo
+scripts/suggest_audience.py         # roda sob demanda para um novo ativo (CLI local)
+scripts/run_suggest_audience_from_env.py  # mesma coisa, via variáveis de ambiente (GitHub Actions)
 scripts/setup_powerbi_dataset.py    # roda uma única vez, na configuração inicial
 scripts/rollback.py                 # reverte manualmente a última ação em um alvo
-.github/workflows/daily-optimization.yml   # agenda a execução diária
+.github/workflows/daily-optimization.yml   # agenda a execução diária (+ Run workflow manual)
+.github/workflows/suggest-audience.yml     # dispara scripts/suggest_audience.py pela interface do GitHub
 .github/workflows/ci.yml                   # roda os testes em cada PR
 docs/index.html                 # dashboard web (publicável via GitHub Pages)
 docs/dashboard_data.json        # dados que alimentam o dashboard (gerado pelo pipeline)
@@ -97,8 +126,9 @@ tests/                          # testes das guardrails de segurança
   use um **token de usuário do sistema (System User)** de longa duração, não o token de um
   usuário pessoal (que expira). Veja `docs/SETUP_FACEBOOK.md`.
 - Uma chave de API da Anthropic (`ANTHROPIC_API_KEY`).
-- Um workspace do Power BI Pro/PPU + um App Registration no Azure AD para autenticação via
-  client credentials. Veja `docs/SETUP_POWERBI.md`.
+- **Opcional, pode configurar depois:** um workspace do Power BI Pro/PPU + um App
+  Registration no Azure AD para autenticação via client credentials. Veja
+  `docs/SETUP_POWERBI.md`.
 
 ### 2. Instalação local
 
@@ -110,14 +140,19 @@ cp .env.example .env
 # edite .env com suas credenciais
 ```
 
-### 3. Configurar o Power BI (uma única vez)
+### 3. Configurar o Power BI (opcional, uma única vez)
+
+Pode pular esta etapa por enquanto — o sistema funciona inteiro sem ela
+(`powerbi.push_enabled: false` já vem desligado em `config/settings.yaml`). Quando quiser
+ligar:
 
 ```bash
 python scripts/setup_powerbi_dataset.py
 ```
 
 Isso cria o dataset de push no seu workspace e imprime o `dataset_id` — copie esse valor
-para `POWERBI_DATASET_ID` no `.env` (local) e nos Secrets do GitHub (produção).
+para `POWERBI_DATASET_ID` no `.env` (local) e nos Secrets do GitHub (produção), cadastre os
+outros `POWERBI_*` (veja `docs/SETUP_POWERBI.md`) e mude `push_enabled` para `true`.
 
 ### 4. Ajustar os limites de segurança
 
@@ -144,16 +179,23 @@ qualquer coisa.
 
 ### 6. Configurar os Secrets no GitHub
 
-Em **Settings → Secrets and variables → Actions** do repositório, cadastre:
+Em **Settings → Secrets and variables → Actions** do repositório, cadastre pelo menos:
 
-`FB_ACCESS_TOKEN`, `FB_AD_ACCOUNT_ID`, `FB_APP_ID`, `FB_APP_SECRET`, `ANTHROPIC_API_KEY`,
-`POWERBI_TENANT_ID`, `POWERBI_CLIENT_ID`, `POWERBI_CLIENT_SECRET`, `POWERBI_WORKSPACE_ID`,
-`POWERBI_DATASET_ID`.
+`FB_ACCESS_TOKEN`, `FB_AD_ACCOUNT_ID`, `FB_APP_ID`, `FB_APP_SECRET`, `ANTHROPIC_API_KEY`.
 
-O workflow `.github/workflows/daily-optimization.yml` roda todo dia às 09:00 UTC
-(06:00 no horário de Brasília) — ajuste o `cron` se quiser outro horário. Ele só é
-disparado automaticamente no branch padrão do repositório; após o merge desta branch,
-confirme que o `cron` está ativo em **Actions**.
+Os `POWERBI_*` (`POWERBI_TENANT_ID`, `POWERBI_CLIENT_ID`, `POWERBI_CLIENT_SECRET`,
+`POWERBI_WORKSPACE_ID`, `POWERBI_DATASET_ID`) só são necessários quando você ligar
+`powerbi.push_enabled` (passo 3).
+
+Há dois workflows:
+
+- `.github/workflows/daily-optimization.yml` roda automaticamente todo dia às 09:00 UTC
+  (06:00 no horário de Brasília) — ajuste o `cron` se quiser outro horário. O agendamento só
+  dispara no branch padrão do repositório; após o merge desta branch, confirme que o `cron`
+  está ativo em **Actions**. Também pode ser disparado manualmente a qualquer momento
+  (**Run workflow**), em qualquer branch.
+- `.github/workflows/suggest-audience.yml` só roda sob demanda (**Run workflow**, com o link
+  do leilão e o orçamento) — não tem agendamento.
 
 ### 7. Publicar o dashboard (GitHub Pages)
 

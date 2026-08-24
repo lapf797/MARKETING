@@ -1,0 +1,76 @@
+name: Sugerir publico-alvo (sob demanda)
+
+on:
+  workflow_dispatch:
+    inputs:
+      url:
+        description: "Link da pagina do lote no site do leilao (deixe em branco se for preencher os campos abaixo)"
+        required: false
+      category:
+        description: "Categoria do ativo, ex: Imoveis, Veiculos (so precisa se nao usar o link acima)"
+        required: false
+      description:
+        description: "Descricao do ativo (so precisa se nao usar o link acima)"
+        required: false
+      location:
+        description: "Localizacao alvo, ex: Sao Paulo, SP (so precisa se nao usar o link acima)"
+        required: false
+      value:
+        description: "Valor estimado do ativo (opcional, numero)"
+        required: false
+      budget:
+        description: "Orcamento diario maximo, na moeda da conta (obrigatorio, numero)"
+        required: true
+      create_campaign:
+        description: "Criar campanha pausada no Facebook automaticamente?"
+        required: true
+        default: "false"
+        type: choice
+        options: ["false", "true"]
+
+permissions:
+  contents: write
+
+jobs:
+  suggest:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Rodar recomendacao de publico
+        env:
+          FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}
+          FB_APP_ID: ${{ secrets.FB_APP_ID }}
+          FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+          POWERBI_TENANT_ID: ${{ secrets.POWERBI_TENANT_ID }}
+          POWERBI_CLIENT_ID: ${{ secrets.POWERBI_CLIENT_ID }}
+          POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
+          POWERBI_WORKSPACE_ID: ${{ secrets.POWERBI_WORKSPACE_ID }}
+          POWERBI_DATASET_ID: ${{ secrets.POWERBI_DATASET_ID }}
+          INPUT_URL: ${{ inputs.url }}
+          INPUT_CATEGORY: ${{ inputs.category }}
+          INPUT_DESCRIPTION: ${{ inputs.description }}
+          INPUT_LOCATION: ${{ inputs.location }}
+          INPUT_VALUE: ${{ inputs.value }}
+          INPUT_BUDGET: ${{ inputs.budget }}
+          INPUT_CREATE_CAMPAIGN: ${{ inputs.create_campaign }}
+        run: python scripts/run_suggest_audience_from_env.py
+
+      - name: Commit dos dados do dashboard
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add logs/audience_recommendations.jsonl
+          git diff --cached --quiet || git commit -m "chore: nova recomendacao de publico-alvo (sob demanda)"
+          git push

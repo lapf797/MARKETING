@@ -1,4 +1,4 @@
-"""CLI para pedir à IA uma recomendação de público-alvo para um novo ativo de leilão.
+"""Pede à IA uma recomendação de público-alvo para um novo ativo de leilão.
 
 Modo recomendado — a partir do link do leilão, a IA lê a página e extrai os dados sozinha:
     python scripts/suggest_audience.py --url "https://milanleiloes.com.br/leilao/imoveis/15498" --budget 100
@@ -15,7 +15,9 @@ o valor extraído só naquele campo específico.
 Por padrão, cria uma campanha e um adset PAUSADOS no Facebook Ads com o público sugerido,
 para você revisar e ativar manualmente. Use --no-create para apenas ver a recomendação sem
 tocar no Facebook.
-"""
+
+Também pode ser disparado sem instalar nada localmente, direto pela aba Actions do GitHub
+(.github/workflows/suggest-audience.yml, que chama run_suggestion() abaixo)."""
 from __future__ import annotations
 
 import argparse
@@ -38,6 +40,10 @@ from src.safety.recommendation_log import log_recommendation
 _GENDER_CODES = {"male": [1], "female": [2], "all": [1, 2]}
 
 
+class SuggestionError(ValueError):
+    """Entrada inválida ou insuficiente para gerar uma recomendação."""
+
+
 def _print_listing(listing) -> None:
     print("\n=== Dados extraídos da página do leilão ===")
     print(f"Título: {listing.title or '—'}")
@@ -52,20 +58,13 @@ def _print_listing(listing) -> None:
         print(f"Notas da extração: {listing.extraction_notes}")
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Sugere público-alvo para um novo ativo de leilão.")
-    parser.add_argument("--url", default=None, help="Link da página do lote no site do leilão — a IA extrai os dados automaticamente")
-    parser.add_argument("--category", default=None, help='Ex: "Imoveis", "Veiculos", "Maquinas" (sobrescreve o que veio de --url)')
-    parser.add_argument("--description", default=None, help="Sobrescreve o que veio de --url")
-    parser.add_argument("--location", default=None, help='Ex: "Sao Paulo, SP" (sobrescreve o que veio de --url)')
-    parser.add_argument("--value", type=float, default=None, help="Valor estimado do ativo (sobrescreve o que veio de --url)")
-    parser.add_argument("--budget", type=float, required=True, help="Orçamento diário máximo (na moeda da conta)")
-    parser.add_argument("--no-create", action="store_true",
-                         help="Apenas mostra a recomendação, sem criar campanha pausada no Facebook")
-    args = parser.parse_args()
-
-    if not args.url and not (args.category and args.description and args.location):
-        parser.error(
+def run_suggestion(*, url: str | None, category: str | None, description: str | None,
+                    location: str | None, value: float | None, budget: float,
+                    no_create: bool) -> None:
+    """Lógica completa do comando — usada tanto pelo CLI (main, abaixo) quanto pelo
+    workflow do GitHub Actions (scripts/run_suggest_audience_from_env.py)."""
+    if not url and not (category and description and location):
+        raise SuggestionError(
             "informe --url (para extrair os dados automaticamente da página do leilão) "
             "ou --category, --description e --location manualmente."
         )
@@ -76,36 +75,35 @@ def main() -> None:
     ai_client = anthropic.Anthropic(api_key=config.ai.api_key)
 
     listing = None
-    if args.url:
-        print(f"Lendo a página do leilão: {args.url}")
-        listing = extract_listing(ai_client, model=config.ai.model, effort=config.ai.audience_advisor_effort, url=args.url)
+    if url:
+        print(f"Lendo a página do leilão: {url}")
+        listing = extract_listing(ai_client, model=config.ai.model, effort=config.ai.audience_advisor_effort, url=url)
         if not listing.success:
             print(f"\nNão foi possível extrair os dados automaticamente: {listing.error_message}")
-            if not (args.category and args.description and args.location):
-                print("Informe --category, --description e --location manualmente e tente de novo.")
-                sys.exit(1)
+            if not (category and description and location):
+                raise SuggestionError(
+                    "a extração falhou e faltam --category/--description/--location para prosseguir manualmente."
+                )
             print("Prosseguindo com os dados informados manualmente.")
             listing = None
         else:
             _print_listing(listing)
 
-    category = args.category or (listing.category if listing else None)
-    location = args.location or (listing.location if listing else None)
-    value = args.value if args.value is not None else (
+    category = category or (listing.category if listing else None)
+    location = location or (listing.location if listing else None)
+    value = value if value is not None else (
         (listing.estimated_value or listing.starting_bid) if listing else None
     )
-    if args.description:
-        description = args.description
+    if description:
+        pass
     elif listing:
         parts = [listing.description or listing.title or ""]
         if listing.key_details:
             parts.append("Detalhes: " + "; ".join(listing.key_details))
         description = "\n".join(p for p in parts if p)
-    else:
-        description = None
 
     if not category or not description or not location:
-        parser.error(
+        raise SuggestionError(
             "não foi possível determinar categoria, descrição ou localização do ativo — "
             "complemente com --category/--description/--location."
         )
@@ -118,7 +116,7 @@ def main() -> None:
         ai_client, model=config.ai.model, effort=config.ai.audience_advisor_effort,
         asset_description=description, asset_category=category, asset_value=value,
         target_location=location,
-        max_daily_budget_cents=int(round(args.budget * config.safety.currency_minor_unit_factor)),
+        max_daily_budget_cents=int(round(budget * config.safety.currency_minor_unit_factor)),
         historical_breakdown=history,
     )
 
@@ -134,7 +132,7 @@ def main() -> None:
 
     log_recommendation(
         asset_category=category, asset_description=description, target_location=location,
-        recommendation=recommendation, source_url=args.url,
+        recommendation=recommendation, source_url=url,
     )
 
     if config.powerbi.push_enabled:
@@ -145,7 +143,7 @@ def main() -> None:
             "timestamp": datetime.now(timezone.utc).isoformat(),
             "asset_category": category,
             "asset_description": description,
-            "source_url": args.url or "",
+            "source_url": url or "",
             "age_min": recommendation.age_min,
             "age_max": recommendation.age_max,
             "gender_targeting": recommendation.gender_targeting,
@@ -156,7 +154,7 @@ def main() -> None:
             "confidence": recommendation.confidence,
         }])
 
-    if args.no_create:
+    if no_create:
         return
 
     print("\nCriando campanha e adset PAUSADOS no Facebook Ads para revisão...")
@@ -185,6 +183,26 @@ def main() -> None:
     print("\nIMPORTANTE: revise a segmentação geográfica e os interesses no Gerenciador de "
           "Anúncios antes de ativar — a IA sugere por nome, mas o Meta exige IDs específicos "
           "de interesse/localização (ver docs/SETUP_FACEBOOK.md).")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Sugere público-alvo para um novo ativo de leilão.")
+    parser.add_argument("--url", default=None, help="Link da página do lote no site do leilão — a IA extrai os dados automaticamente")
+    parser.add_argument("--category", default=None, help='Ex: "Imoveis", "Veiculos", "Maquinas" (sobrescreve o que veio de --url)')
+    parser.add_argument("--description", default=None, help="Sobrescreve o que veio de --url")
+    parser.add_argument("--location", default=None, help='Ex: "Sao Paulo, SP" (sobrescreve o que veio de --url)')
+    parser.add_argument("--value", type=float, default=None, help="Valor estimado do ativo (sobrescreve o que veio de --url)")
+    parser.add_argument("--budget", type=float, required=True, help="Orçamento diário máximo (na moeda da conta)")
+    parser.add_argument("--no-create", action="store_true",
+                         help="Apenas mostra a recomendação, sem criar campanha pausada no Facebook")
+    args = parser.parse_args()
+
+    try:
+        run_suggestion(url=args.url, category=args.category, description=args.description,
+                        location=args.location, value=args.value, budget=args.budget,
+                        no_create=args.no_create)
+    except SuggestionError as exc:
+        parser.error(str(exc))
 
 
 if __name__ == "__main__":
