@@ -23,10 +23,12 @@ jobs:
 
       - name: Deploy das Cloud Functions e regras do Firestore
         env:
-          FIREBASE_TOKEN: ${{ secrets.FIREBASE_TOKEN }}
+          GCP_SA_KEY: ${{ secrets.GCP_SA_KEY }}
           FIREBASE_PROJECT_ID: ${{ secrets.FIREBASE_PROJECT_ID }}
         run: |
           set -euo pipefail
           echo "{\"projects\":{\"default\":\"$FIREBASE_PROJECT_ID\"}}" > .firebaserc
+          echo "$GCP_SA_KEY" > "$RUNNER_TEMP/gcp-key.json"
+          export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
           firebase deploy --only functions,firestore:rules \
-            --project "$FIREBASE_PROJECT_ID" --token "$FIREBASE_TOKEN" --non-interactive
+            --project "$FIREBASE_PROJECT_ID" --non-interactive

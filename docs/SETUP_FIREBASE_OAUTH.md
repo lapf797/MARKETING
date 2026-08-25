@@ -30,19 +30,38 @@ Console, Cloud Shell, GitHub, Meta for Developers).
 3. Pelo volume de uso deste sistema (algumas chamadas por dia), o custo esperado é
    **R$ 0,00** — o Blaze já inclui uma cota gratuita generosa que cobre isso.
 
-## 3. Gerar um token do Firebase CLI (pelo Cloud Shell, sem instalar nada)
+## 3. Criar uma "conta de serviço" para o GitHub usar (pelo Cloud Shell)
 
-1. Ainda no [console.firebase.google.com](https://console.firebase.google.com), clique no
-   ícone de **Cloud Shell** (`>_`) no topo da página — abre um terminal no navegador,
-   nenhuma instalação local.
-2. Rode:
-   ```bash
-   firebase login:ci --no-localhost
-   ```
-3. Ele mostra um link — abra em outra aba, autorize, copie o código que aparece e cole de
-   volta no Cloud Shell.
-4. Vai aparecer um token longo (começa com algo como `1//...`). **Copie e guarde** — é o
-   `FIREBASE_TOKEN`.
+O GitHub Actions precisa de uma credencial pra publicar as Cloud Functions sem você estar
+logado. Ainda no [console.firebase.google.com](https://console.firebase.google.com), dentro
+do seu projeto, clique no ícone de **Cloud Shell** (`>_`) no topo da página — abre um
+terminal no navegador, nenhuma instalação local — e rode os três comandos abaixo, um de
+cada vez (troque `SEU-PROJECT-ID` pelo ID do seu projeto nos três):
+
+```bash
+gcloud iam service-accounts create firebase-deploy --display-name "Deploy GitHub Actions" --project SEU-PROJECT-ID
+```
+
+```bash
+gcloud projects add-iam-policy-binding SEU-PROJECT-ID \
+  --member="serviceAccount:firebase-deploy@SEU-PROJECT-ID.iam.gserviceaccount.com" \
+  --role="roles/editor"
+```
+
+```bash
+gcloud iam service-accounts keys create ~/firebase-deploy-key.json \
+  --iam-account=firebase-deploy@SEU-PROJECT-ID.iam.gserviceaccount.com
+```
+
+Por fim, mostre o conteúdo do arquivo gerado:
+
+```bash
+cat ~/firebase-deploy-key.json
+```
+
+Vai aparecer um bloco de texto começando com `{` e terminando com `}` (é um JSON). **Copie
+esse bloco inteiro** (do `{` até o `}` final) — é o valor do secret `GCP_SA_KEY` no próximo
+passo.
 
 ## 4. Cadastrar os dois primeiros secrets no GitHub
 
@@ -50,7 +69,7 @@ Console, Cloud Shell, GitHub, Meta for Developers).
 
 | Secret | Valor |
 |---|---|
-| `FIREBASE_TOKEN` | o token do passo 3 |
+| `GCP_SA_KEY` | o bloco JSON inteiro do passo 3 |
 | `FIREBASE_PROJECT_ID` | o ID do projeto do passo 1 |
 
 ## 5. Configurar os segredos das Cloud Functions (ainda no Cloud Shell)
@@ -140,8 +159,9 @@ basta clicar em "Conectar com Facebook" de novo.
 ## Se algo der errado
 
 - **"Deploy das Cloud Functions" falhou**: abra o log do passo — se mencionar os secrets
-  (`META_APP_ID` etc.) não existirem, volte ao passo 5. Se mencionar o `--token`, gere um
-  novo no passo 3 (ele pode expirar se ficar muito tempo sem uso).
+  (`META_APP_ID` etc.) não existirem, volte ao passo 5. Se mencionar erro de autenticação
+  (401/permissão negada), confira se `GCP_SA_KEY` no GitHub tem o JSON *completo* (do `{`
+  ao `}`, sem cortar nada) e se `FIREBASE_PROJECT_ID` está certo.
 - **"Conectado com sucesso" nunca aparece / erro da Meta**: confira se a URL do passo 7
   está *exatamente* igual à do log do deploy (sem barra `/` sobrando no final).
 - **Dashboard mostra "não consegui confirmar o status"**: confira se colou o endereço
