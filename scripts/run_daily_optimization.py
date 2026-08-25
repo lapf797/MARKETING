@@ -27,7 +27,7 @@ from src.ai.schemas import OptimizationAction
 from src.config import AppConfig, load_config
 from src.facebook_ads.client import FacebookAdsClient
 from src.facebook_ads.insights import fetch_daily_performance
-from src.reporting.powerbi_push import PowerBIClient
+from src.reporting.powerbi_push import PowerBIClient, to_action_row
 from src.safety.audit_log import last_change_timestamps, log_action, read_log
 from src.safety.guardrails import apply_guardrails
 from src.safety.recommendation_log import read_recommendations
@@ -196,7 +196,7 @@ def main() -> None:
                 rejection_reason=f"erro ao aplicar na Graph API: {exc}",
                 adjusted=action.target_id in adjusted_ids,
             )
-            action_log_rows.append(entry)
+            action_log_rows.append(to_action_row(entry))
             continue
 
         entry = log_action(
@@ -207,7 +207,7 @@ def main() -> None:
             status="simulated" if config.safety.dry_run else "applied",
             dry_run=config.safety.dry_run, adjusted=action.target_id in adjusted_ids,
         )
-        action_log_rows.append(entry)
+        action_log_rows.append(to_action_row(entry))
 
     for action, reason in result.rejected:
         print(f"  REJEITADA [{action.target_name}] {action.action_type}: {reason}")
@@ -218,7 +218,7 @@ def main() -> None:
             reasoning=action.reasoning, confidence=action.confidence,
             status="rejected", dry_run=config.safety.dry_run, rejection_reason=reason,
         )
-        action_log_rows.append(entry)
+        action_log_rows.append(to_action_row(entry))
 
     if config.powerbi.push_enabled:
         print("Enviando dados para o Power BI...")

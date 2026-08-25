@@ -13,6 +13,20 @@ AAD_TOKEN_URL = "https://login.microsoftonline.com/{tenant_id}/oauth2/v2.0/token
 POWERBI_SCOPE = "https://analysis.windows.net/powerbi/api/.default"
 POWERBI_BASE_URL = "https://api.powerbi.com/v1.0/myorg"
 
+# Colunas da tabela OptimizerActions (ver scripts/setup_powerbi_dataset.py) — a Push
+# Dataset API rejeita a linha inteira se ela tiver qualquer propriedade fora do schema da
+# tabela, então todo entry de src.safety.audit_log.log_action() (que tem campos extras
+# como "status"/"rejection_reason"/"adjusted", úteis só localmente) precisa passar por
+# to_action_row() antes de ser enviado ao Power BI.
+ACTION_ROW_FIELDS = ("timestamp", "action_type", "target_type", "target_id", "target_name",
+                     "before_value", "after_value", "reasoning", "confidence", "dry_run")
+
+
+def to_action_row(entry: dict[str, Any]) -> dict[str, Any]:
+    """Filtra um registro da trilha de auditoria para só as colunas da tabela
+    OptimizerActions do Power BI."""
+    return {key: entry[key] for key in ACTION_ROW_FIELDS}
+
 
 class PowerBIClient:
     """Cliente para o Push Dataset API do Power BI."""

@@ -29,6 +29,7 @@ from src.facebook_ads.placement_targeting import (
     build_age_gender_only_targeting,
     build_placement_targeting,
 )
+from src.reporting.powerbi_push import PowerBIClient, to_action_row
 from src.safety.audit_log import last_change_timestamps, log_action
 
 ACTION_TYPE = "optimize_placements"
@@ -46,7 +47,8 @@ def _hours_since(timestamp_iso: str | None) -> float:
 
 def _optimize_one(ai_client: anthropic.Anthropic, fb_client: FacebookAdsClient, *,
                    config: AppConfig, campaign: dict, adset: dict,
-                   last_changes: dict[str, str], dry_run: bool) -> None:
+                   last_changes: dict[str, str], dry_run: bool,
+                   action_log_rows: list[dict]) -> None:
     campaign_id = campaign["id"]
     campaign_name = campaign.get("name", campaign_id)
     adset_id = adset["id"]
@@ -66,13 +68,14 @@ def _optimize_one(ai_client: anthropic.Anthropic, fb_client: FacebookAdsClient, 
     if impressions < config.safety.min_impressions_before_placement_action:
         print(f"  [{campaign_name}] pouco volume ({impressions} impressões, mínimo "
               f"{config.safety.min_impressions_before_placement_action}) — pulando.")
-        log_action(
+        entry = log_action(
             action_type=ACTION_TYPE, target_type="adset", target_id=adset_id, target_name=campaign_name,
             before_value=None, after_value=None,
             reasoning="volume insuficiente para decidir posicionamento/demografia com segurança",
             confidence=1.0, status="rejected", dry_run=dry_run,
             rejection_reason=f"{impressions} impressões, mínimo {config.safety.min_impressions_before_placement_action}",
         )
+        action_log_rows.append(to_action_row(entry))
         return
 
     by_platform_placement = fb_client.get_insights(
@@ -95,24 +98,26 @@ def _optimize_one(ai_client: anthropic.Anthropic, fb_client: FacebookAdsClient, 
 
     if not plan.should_apply:
         print(f"  [{campaign_name}] IA não propôs mudança: {plan.reason_if_not_applying}")
-        log_action(
+        entry = log_action(
             action_type=ACTION_TYPE, target_type="adset", target_id=adset_id, target_name=campaign_name,
             before_value=None, after_value=None,
             reasoning=plan.reason_if_not_applying or plan.explanation,
             confidence=plan.confidence, status="rejected", dry_run=dry_run,
             rejection_reason="a IA concluiu que não havia ajuste seguro a propor agora",
         )
+        action_log_rows.append(to_action_row(entry))
         return
 
     if plan.confidence < config.safety.require_ai_confidence:
         print(f"  [{campaign_name}] confiança {plan.confidence:.2f} abaixo do mínimo "
               f"{config.safety.require_ai_confidence:.2f} — pulando.")
-        log_action(
+        entry = log_action(
             action_type=ACTION_TYPE, target_type="adset", target_id=adset_id, target_name=campaign_name,
             before_value=None, after_value=None, reasoning=plan.explanation, confidence=plan.confidence,
             status="rejected", dry_run=dry_run,
             rejection_reason=f"confiança abaixo do mínimo ({config.safety.require_ai_confidence})",
         )
+        action_log_rows.append(to_action_row(entry))
         return
 
     new_targeting = build_placement_targeting(current_targeting, plan)
@@ -123,11 +128,12 @@ def _optimize_one(ai_client: anthropic.Anthropic, fb_client: FacebookAdsClient, 
     print(f"      {plan.explanation}")
 
     if dry_run:
-        log_action(
+        entry = log_action(
             action_type=ACTION_TYPE, target_type="adset", target_id=adset_id, target_name=campaign_name,
             before_value=str(current_targeting), after_value=str(new_targeting),
             reasoning=plan.explanation, confidence=plan.confidence, status="simulated", dry_run=True,
         )
+        action_log_rows.append(to_action_row(entry))
         return
 
     warning = None
@@ -140,12 +146,13 @@ def _optimize_one(ai_client: anthropic.Anthropic, fb_client: FacebookAdsClient, 
         fb_client.update_adset_targeting(adset_id, fallback_targeting)
         new_targeting = fallback_targeting
 
-    log_action(
+    entry = log_action(
         action_type=ACTION_TYPE, target_type="adset", target_id=adset_id, target_name=campaign_name,
         before_value=str(current_targeting), after_value=str(new_targeting),
         reasoning=plan.explanation + (f" ({warning})" if warning else ""),
         confidence=plan.confidence, status="applied", dry_run=False,
     )
+    action_log_rows.append(to_action_row(entry))
 
 
 def main() -> None:
@@ -171,6 +178,7 @@ def main() -> None:
     last_changes = last_change_timestamps()
     print(f"{len(campaigns)} campanha(s) para avaliar.")
 
+    action_log_rows: list[dict] = []
     for campaign in campaigns:
         adsets = fb_client.list_adsets(campaign["id"])
         active_adsets = [a for a in adsets if a.get("effective_status") == "ACTIVE"]
@@ -178,7 +186,15 @@ def main() -> None:
             print(f"  [{campaign.get('name', campaign['id'])}] sem adset ativo — pulando.")
             continue
         _optimize_one(ai_client, fb_client, config=config, campaign=campaign,
-                       adset=active_adsets[0], last_changes=last_changes, dry_run=args.dry_run)
+                       adset=active_adsets[0], last_changes=last_changes, dry_run=args.dry_run,
+                       action_log_rows=action_log_rows)
+
+    if config.powerbi.push_enabled and action_log_rows:
+        print("Enviando decisões de posicionamento/demografia para o Power BI...")
+        pbi = PowerBIClient(config.powerbi.tenant_id, config.powerbi.client_id,
+                             config.powerbi.client_secret, config.powerbi.workspace_id,
+                             config.powerbi.dataset_id)
+        pbi.push_rows(config.powerbi.table_actions, action_log_rows)
 
     if args.dry_run:
         print("\nModo de revisão (--dry-run) — nenhuma mudança real foi aplicada no Facebook.")
