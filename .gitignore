@@ -8,3 +8,9 @@ venv/
 .DS_Store
 config/settings.local.yaml
 preview_creative*.jpg
+
+# Firebase (login com Facebook) — .firebaserc tem o ID do seu projeto, específico de cada
+# instalação; veja .firebaserc.example. firebase-debug.log é só log local do CLI.
+.firebaserc
+firebase-debug.log
+.firebase/

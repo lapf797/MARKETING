@@ -264,7 +264,9 @@ src/ai/                         # prompts e chamadas à Claude (catálogo, recom
 src/creative/                   # geração automática da imagem do anúncio (realce + marca + selos)
 src/safety/                     # guardrails + trilha de auditoria + rascunhos + log de recomendações
 src/reporting/                  # push para o Power BI
+src/facebook_ads/dynamic_token.py  # busca o token no login com Facebook (Firebase), se configurado
 assets/fonts/                   # fonte vendorizada (Instrument Sans, licença OFL) usada nos criativos
+functions/                      # Cloud Functions do login com Facebook (Firebase) — ver docs/SETUP_FIREBASE_OAUTH.md
 scripts/analyze_catalog.py             # PDF do catálogo -> rascunhos de anúncio (não toca no Facebook)
 scripts/create_campaigns_from_drafts.py  # rascunhos aprovados -> campanhas reais no Facebook
 scripts/preview_ad_creative.py      # gera uma prévia local do criativo, sem usar nenhuma API
@@ -278,6 +280,7 @@ scripts/rollback.py                 # reverte manualmente a última ação em um
 .github/workflows/daily-optimization.yml   # agenda a execução diária (posicionamento + orçamento)
 .github/workflows/suggest-audience.yml     # dispara scripts/suggest_audience.py pela interface do GitHub
 .github/workflows/ci.yml                   # roda os testes em cada PR
+.github/workflows/deploy-firebase.yml      # publica o login com Facebook (Firebase) sob demanda
 docs/index.html                 # dashboard web (publicável via GitHub Pages)
 docs/dashboard_data.json        # dados do pipeline diário que alimentam o dashboard
 docs/drafts_data.json           # rascunhos de anúncio que alimentam o dashboard
@@ -298,6 +301,9 @@ tests/                          # testes das guardrails, regras de orçamento, t
   permissões `ads_management`, `ads_read` e `business_management`. Para automação diária,
   use um **token de usuário do sistema (System User)** de longa duração, não o token de um
   usuário pessoal (que expira). Veja `docs/SETUP_FACEBOOK.md`.
+  - **Alternativa sem gerar token na mão**: um botão "Conectar com Facebook" na aba
+    Configurações do dashboard, que renova o acesso sozinho — exige uma configuração
+    inicial à parte (usa Firebase). Veja `docs/SETUP_FIREBASE_OAUTH.md`.
 - Uma chave de API da Anthropic (`ANTHROPIC_API_KEY`).
 - **Opcional, pode configurar depois:** um workspace do Power BI Pro/PPU + um App
   Registration no Azure AD para autenticação via client credentials. Veja
@@ -401,6 +407,11 @@ Mostra: gasto/conversões/CPA do período, o resumo que a própria IA escreveu s
 execução do dia, um gráfico de gasto diário, a tabela de performance por adset, o feed
 de decisões da IA (aplicadas, simuladas ou bloqueadas pelas guardrails, com o motivo do
 bloqueio) e as recomendações de público-alvo mais recentes.
+
+A aba **Configurações**, no topo, tem o botão "Conectar com Facebook" (login OAuth, sem
+precisar gerar token manualmente — ver `docs/SETUP_FIREBASE_OAUTH.md`). O endereço das
+Cloud Functions fica salvo só no navegador (`localStorage`); nenhum token passa pelo
+dashboard em nenhum momento.
 
 ## Sistema de segurança (guardrails)
 

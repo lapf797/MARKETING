@@ -14,4 +14,17 @@ jobs:
         with:
           python-version: "3.12"
       - run: pip install -r requirements-dev.txt
-      - run: pytest -q
+      - run: pytest tests/ -q
+
+  test-functions:
+    # Suite à parte: functions/ (Cloud Functions do login com Facebook) é um runtime
+    # separado, com suas próprias dependências (firebase-functions, firebase-admin) — não
+    # entram no requirements-dev.txt principal pra não inchar o ambiente do pipeline.
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -r functions/requirements-dev.txt
+      - run: pytest functions/ -q

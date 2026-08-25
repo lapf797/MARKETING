@@ -307,6 +307,49 @@
 
   .empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 
+  .btn-primary, .btn-secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 8px 14px;
+    border-radius: 8px;
+    cursor: pointer;
+    border: 1px solid transparent;
+    text-decoration: none;
+    font-family: inherit;
+  }
+  .btn-primary { background: var(--accent); color: #fff; }
+  .btn-primary:hover { opacity: 0.92; }
+  .btn-secondary { background: transparent; color: var(--text-secondary); border-color: var(--border-strong); }
+  .btn-secondary:hover { color: var(--text-primary); border-color: var(--text-secondary); }
+  .config-input {
+    flex: 1;
+    min-width: 240px;
+    padding: 8px 10px;
+    border-radius: 8px;
+    border: 1px solid var(--border-strong);
+    background: var(--surface-page);
+    color: var(--text-primary);
+    font-size: 13px;
+    font-family: inherit;
+  }
+  .config-status {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    border-left: 3px solid var(--border-strong);
+    padding: 10px 14px;
+    background: var(--border);
+    border-radius: 0 8px 8px 0;
+    font-size: 13px;
+    color: var(--text-secondary);
+    margin-bottom: 14px;
+  }
+  .config-status.ok { border-left-color: var(--good); }
+  .config-status.warn { border-left-color: var(--warning); }
+
   footer.foot {
     text-align: center;
     font-size: 12px;
@@ -343,6 +386,31 @@
       <span id="generated-at">—</span>
     </div>
   </header>
+
+  <section class="card" id="config-card">
+    <h2>Configurações</h2>
+    <p class="card-sub">Conecte a conta do Facebook usada pelo pipeline — sem precisar gerar token manualmente.</p>
+
+    <div id="config-status" class="config-status">
+      <span id="config-status-text">Verificando conexão…</span>
+    </div>
+
+    <div id="config-setup" style="display:none;">
+      <label for="functions-url-input" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+        Endereço das suas Cloud Functions (cole uma vez só — está no guia de configuração, docs/SETUP_FIREBASE_OAUTH.md)
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input id="functions-url-input" class="config-input" type="text"
+               placeholder="https://southamerica-east1-seu-projeto.cloudfunctions.net" />
+        <button id="save-url-btn" class="btn-primary" type="button">Salvar</button>
+      </div>
+    </div>
+
+    <div id="config-connect" style="display:none;">
+      <a id="connect-fb-link" href="#" class="btn-primary">Conectar com Facebook</a>
+      <button id="change-url-btn" class="btn-secondary" type="button">Trocar endereço</button>
+    </div>
+  </section>
 
   <section class="kpi-grid">
     <div class="kpi">
@@ -885,5 +953,96 @@
     .then(function (resp) { if (!resp.ok) throw new Error("no drafts yet"); return resp.json(); })
     .then(function (data) { renderDrafts(data); })
     .catch(function () { renderDrafts(SAMPLE_DRAFTS); });
+})();
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  // Aba Configurações: guarda o endereço das Cloud Functions do usuário (localStorage —
+  // fica só neste navegador, nunca é enviado pra nenhum servidor além do Facebook/Firebase
+  // que o próprio usuário configurou) e usa pra montar o link de "Conectar com Facebook" e
+  // consultar o status de conexão (endpoint público, não devolve nenhum segredo).
+  var STORAGE_KEY = "marketing_functions_base_url";
+
+  var statusBox = document.getElementById("config-status");
+  var statusText = document.getElementById("config-status-text");
+  var setupBlock = document.getElementById("config-setup");
+  var connectBlock = document.getElementById("config-connect");
+  var urlInput = document.getElementById("functions-url-input");
+  var saveBtn = document.getElementById("save-url-btn");
+  var changeBtn = document.getElementById("change-url-btn");
+  var connectLink = document.getElementById("connect-fb-link");
+
+  function readSavedUrl() {
+    try { return localStorage.getItem(STORAGE_KEY) || ""; } catch (e) { return ""; }
+  }
+
+  function saveUrl(value) {
+    try { localStorage.setItem(STORAGE_KEY, value); } catch (e) { /* navegador sem localStorage — segue sem salvar */ }
+  }
+
+  function normalizeUrl(value) {
+    return String(value || "").trim().replace(/\/+$/, "");
+  }
+
+  function setStatus(text, kind) {
+    statusText.textContent = text;
+    statusBox.className = "config-status" + (kind ? " " + kind : "");
+  }
+
+  function showSetup() {
+    connectBlock.style.display = "none";
+    setupBlock.style.display = "block";
+  }
+
+  function showConnect(baseUrl) {
+    setupBlock.style.display = "none";
+    connectBlock.style.display = "block";
+    connectLink.href = baseUrl + "/connect_facebook";
+  }
+
+  function checkConnection(baseUrl) {
+    fetch(baseUrl + "/connection_status", { cache: "no-store" })
+      .then(function (resp) { if (!resp.ok) throw new Error("status indisponível"); return resp.json(); })
+      .then(function (data) {
+        if (data.connected) {
+          setStatus("Conectado ao Facebook. O pipeline já está usando esse acesso.", "ok");
+        } else {
+          setStatus("Endereço salvo, mas ainda não conectado — clique em \"Conectar com Facebook\" abaixo.", "warn");
+        }
+      })
+      .catch(function () {
+        setStatus("Não consegui confirmar o status agora (endereço errado ou função ainda não publicada). " +
+          "Confira o endereço ou tente de novo em instantes.", "warn");
+      });
+  }
+
+  var saved = normalizeUrl(readSavedUrl());
+  if (saved) {
+    showConnect(saved);
+    checkConnection(saved);
+  } else {
+    showSetup();
+    setStatus("Ainda não configurado — cole o endereço das suas Cloud Functions abaixo (uma vez só).");
+  }
+
+  saveBtn.addEventListener("click", function () {
+    var value = normalizeUrl(urlInput.value);
+    if (!/^https:\/\//.test(value)) {
+      setStatus("Cole um endereço válido, começando com https://", "warn");
+      return;
+    }
+    saveUrl(value);
+    showConnect(value);
+    setStatus("Verificando conexão…");
+    checkConnection(value);
+  });
+
+  changeBtn.addEventListener("click", function () {
+    urlInput.value = readSavedUrl();
+    showSetup();
+  });
 })();
 </script>

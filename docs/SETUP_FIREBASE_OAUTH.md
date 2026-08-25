@@ -1,0 +1,148 @@
+# Login com Facebook (Firebase) — configuração inicial
+
+Isso substitui o token manual de "Usuário do Sistema" por um botão de **"Conectar com
+Facebook"** na aba Configurações do dashboard. É um projeto à parte do resto do sistema —
+depois de configurado uma vez, você nunca mais precisa gerar/trocar token na mão, e o
+sistema se renova sozinho.
+
+**O que só você (ou alguém de confiança) pode fazer**, porque exige login nas suas próprias
+contas: os passos 1 a 6 abaixo. Depois disso, tudo roda sozinho.
+
+Nenhum passo aqui exige instalar nada no computador — tudo é feito pelo navegador (Firebase
+Console, Cloud Shell, GitHub, Meta for Developers).
+
+---
+
+## 1. Criar o projeto no Firebase
+
+1. Acesse [console.firebase.google.com](https://console.firebase.google.com) e entre com a
+   conta que você já tem.
+2. **Adicionar projeto** → dê um nome (ex: "milan-marketing") → pode desativar o Google
+   Analytics (não precisamos) → criar.
+3. Anote o **ID do projeto** (aparece embaixo do nome, algo como `milan-marketing-a1b2c`) —
+   é diferente do nome, você vai precisar dele várias vezes.
+
+## 2. Ativar o plano Blaze
+
+1. No menu do projeto, clique no ícone de engrenagem → **Uso e faturamento** (ou o aviso
+   que já aparece pedindo upgrade).
+2. Escolha **Blaze (pague conforme o uso)** e cadastre um cartão.
+3. Pelo volume de uso deste sistema (algumas chamadas por dia), o custo esperado é
+   **R$ 0,00** — o Blaze já inclui uma cota gratuita generosa que cobre isso.
+
+## 3. Gerar um token do Firebase CLI (pelo Cloud Shell, sem instalar nada)
+
+1. Ainda no [console.firebase.google.com](https://console.firebase.google.com), clique no
+   ícone de **Cloud Shell** (`>_`) no topo da página — abre um terminal no navegador,
+   nenhuma instalação local.
+2. Rode:
+   ```bash
+   firebase login:ci --no-localhost
+   ```
+3. Ele mostra um link — abra em outra aba, autorize, copie o código que aparece e cole de
+   volta no Cloud Shell.
+4. Vai aparecer um token longo (começa com algo como `1//...`). **Copie e guarde** — é o
+   `FIREBASE_TOKEN`.
+
+## 4. Cadastrar os dois primeiros secrets no GitHub
+
+**Settings → Secrets and variables → Actions → New repository secret**:
+
+| Secret | Valor |
+|---|---|
+| `FIREBASE_TOKEN` | o token do passo 3 |
+| `FIREBASE_PROJECT_ID` | o ID do projeto do passo 1 |
+
+## 5. Configurar os segredos das Cloud Functions (ainda no Cloud Shell)
+
+Estes três valores ficam guardados dentro do próprio Firebase (Secret Manager), não no
+GitHub — é o Firebase quem usa. Ainda no Cloud Shell:
+
+```bash
+firebase functions:secrets:set META_APP_ID --project SEU-PROJECT-ID
+firebase functions:secrets:set META_APP_SECRET --project SEU-PROJECT-ID
+firebase functions:secrets:set TOKEN_API_KEY --project SEU-PROJECT-ID
+```
+
+(troque `SEU-PROJECT-ID` pelo ID do passo 1 nos três comandos)
+
+Cada comando pede pra colar um valor:
+- `META_APP_ID` e `META_APP_SECRET`: os mesmos do seu App em
+  [developers.facebook.com/apps](https://developers.facebook.com/apps) → Configurações →
+  Básico (se você já tem esses dois de uma configuração anterior, é só reaproveitar).
+- `TOKEN_API_KEY`: **você inventa** uma senha longa e aleatória agora — pode gerar uma
+  rodando `openssl rand -hex 32` no mesmo Cloud Shell e colando o resultado. Guarde esse
+  valor também, você vai usar de novo no passo 8.
+
+## 6. Publicar (deploy)
+
+No GitHub: aba **Actions** → **"Deploy do login com Facebook (Firebase)"** → **Run
+workflow** (branch `claude/facebook-ads-marketing-system-66a3tq`) → **Run workflow**.
+
+Espere terminar (ícone verde) e clique na execução → abra o passo **"Deploy das Cloud
+Functions..."** → procure linhas parecidas com:
+
+```
+Function URL (connect_facebook(...)): https://southamerica-east1-milan-marketing-a1b2c.cloudfunctions.net/connect_facebook
+Function URL (oauth_callback(...)): https://southamerica-east1-milan-marketing-a1b2c.cloudfunctions.net/oauth_callback
+```
+
+Anote o **endereço base** (tudo antes de `/connect_facebook`) — vai precisar dele nos
+passos 7 e 9.
+
+## 7. Autorizar o endereço no App da Meta
+
+1. Em [developers.facebook.com/apps](https://developers.facebook.com/apps) → seu App →
+   se ainda não tiver, clique **Adicionar produto** → **Login do Facebook** → **Configurar**.
+2. Menu **Login do Facebook → Configurações**.
+3. Em **URIs de redirecionamento OAuth válidos**, cole a URL do `oauth_callback` (a linha
+   completa que você anotou no passo 6, terminando em `/oauth_callback`) → **Salvar
+   alterações**.
+
+> Como esse App gerencia só a conta de anúncios da própria empresa (dentro do mesmo
+> Business Manager), isso normalmente não exige passar pela revisão completa da Meta — se
+> em algum momento aparecer um pedido de revisão/verificação de negócio bloqueando o login,
+> me avise que vejo com você o que fazer.
+
+## 8. Conectar pelo dashboard
+
+1. Abra o dashboard (`https://lapf797.github.io/MARKETING/`) → aba **Configurações**.
+2. Cole o **endereço base** do passo 6 → **Salvar**.
+3. Clique **Conectar com Facebook** → faça login e autorize as permissões pedidas.
+4. Deve aparecer "Conectado com sucesso!" — volte pro dashboard, o status deve virar
+   "Conectado ao Facebook".
+
+## 9. Trocar o token estático pelo dinâmico nos workflows
+
+Agora que o login está funcionando, troque como os scripts pegam o token — em vez do
+`FB_ACCESS_TOKEN` manual, eles passam a buscar sempre o mais atual:
+
+1. Em **Settings → Secrets and variables → Actions**, adicione:
+
+   | Secret | Valor |
+   |---|---|
+   | `FB_TOKEN_ENDPOINT_URL` | o endereço base do passo 6 + `/get_token` (ex: `https://southamerica-east1-milan-marketing-a1b2c.cloudfunctions.net/get_token`) |
+   | `FB_TOKEN_API_KEY` | o mesmo valor de `TOKEN_API_KEY` que você inventou no passo 5 |
+
+2. Pode deixar o `FB_ACCESS_TOKEN` antigo cadastrado (ele simplesmente deixa de ser usado
+   assim que os dois novos existirem) ou apagá-lo — como preferir.
+
+## 10. Testar
+
+Rode a aba **Actions → "Sugerir publico-alvo"** de novo com um link de leilão real — se
+funcionar sem erro de autenticação, o login com Facebook está no ar. Dali em diante, o
+próprio sistema renova o acesso sozinho, uma vez por semana, sem você precisar voltar
+aqui — a única exceção é se você revogar o acesso manualmente lá no Facebook, caso em que
+basta clicar em "Conectar com Facebook" de novo.
+
+---
+
+## Se algo der errado
+
+- **"Deploy das Cloud Functions" falhou**: abra o log do passo — se mencionar os secrets
+  (`META_APP_ID` etc.) não existirem, volte ao passo 5. Se mencionar o `--token`, gere um
+  novo no passo 3 (ele pode expirar se ficar muito tempo sem uso).
+- **"Conectado com sucesso" nunca aparece / erro da Meta**: confira se a URL do passo 7
+  está *exatamente* igual à do log do deploy (sem barra `/` sobrando no final).
+- **Dashboard mostra "não consegui confirmar o status"**: confira se colou o endereço
+  *base* (sem `/connect_facebook` no final) na aba Configurações.

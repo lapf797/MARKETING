@@ -107,6 +107,18 @@ def _require_env(name: str, *, required: bool = True) -> str | None:
     return value
 
 
+def _resolve_facebook_access_token() -> str:
+    """Se FB_TOKEN_ENDPOINT_URL/FB_TOKEN_API_KEY estiverem configurados (login com Facebook
+    via Firebase — ver docs/SETUP_FIREBASE_OAUTH.md), busca o token atual dali. Senão, cai
+    de volta no FB_ACCESS_TOKEN estático de sempre — as duas formas continuam funcionando."""
+    endpoint_url = _require_env("FB_TOKEN_ENDPOINT_URL", required=False)
+    api_key = _require_env("FB_TOKEN_API_KEY", required=False)
+    if endpoint_url and api_key:
+        from src.facebook_ads.dynamic_token import fetch_access_token
+        return fetch_access_token(endpoint_url, api_key)
+    return _require_env("FB_ACCESS_TOKEN")
+
+
 def load_config(path: str | Path | None = None) -> AppConfig:
     config_path = Path(path or os.environ.get("CONFIG_PATH", "config/settings.yaml"))
     if not config_path.exists():
@@ -140,7 +152,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         api_version=str(fb_raw["api_version"]),
         insights_lookback_days=int(fb_raw["insights_lookback_days"]),
         conversion_action_type=str(fb_raw["conversion_action_type"]),
-        access_token=_require_env("FB_ACCESS_TOKEN"),
+        access_token=_resolve_facebook_access_token(),
         ad_account_id=_require_env("FB_AD_ACCOUNT_ID"),
         app_id=_require_env("FB_APP_ID", required=False),
         app_secret=_require_env("FB_APP_SECRET", required=False),
