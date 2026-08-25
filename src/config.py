@@ -65,6 +65,16 @@ class AdsConfig:
 
 
 @dataclass
+class CreativeConfig:
+    auto_generate_image: bool
+    brand_name: str
+    logo_path: str | None
+    color_dark: str
+    color_accent: str
+    color_secondary: str
+
+
+@dataclass
 class PowerBIConfig:
     push_enabled: bool
     table_campaign_metrics: str
@@ -84,6 +94,7 @@ class AppConfig:
     ai: AIConfig
     powerbi: PowerBIConfig
     ads: AdsConfig
+    creative: CreativeConfig
 
 
 def _require_env(name: str, *, required: bool = True) -> str | None:
@@ -176,4 +187,14 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         lookalike_country=str(ads_raw.get("lookalike_country", "BR")),
     )
 
-    return AppConfig(safety=safety, facebook=facebook, ai=ai, powerbi=powerbi, ads=ads)
+    creative_raw = raw.get("creative", {})
+    creative = CreativeConfig(
+        auto_generate_image=bool(creative_raw.get("auto_generate_image", True)),
+        brand_name=str(creative_raw.get("brand_name", "MILAN LEILÕES")),
+        logo_path=(str(creative_raw["logo_path"]).strip() or None) if creative_raw.get("logo_path") else None,
+        color_dark=str(creative_raw.get("color_dark", "#0F1F3D")),
+        color_accent=str(creative_raw.get("color_accent", "#D6AF5A")),
+        color_secondary=str(creative_raw.get("color_secondary", "#03A3BE")),
+    )
+
+    return AppConfig(safety=safety, facebook=facebook, ai=ai, powerbi=powerbi, ads=ads, creative=creative)

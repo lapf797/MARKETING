@@ -103,6 +103,21 @@ ads:
   lookalike_ratio: 0.05
   lookalike_country: "BR"
 
+# Geração automática da imagem do anúncio (src/creative/) a partir da foto real do ativo:
+# realça a foto, sobrepõe a marca, título, localização, data do leilão e selos de preço/
+# parcelamento. Produz uma imagem 1080x1080 e sobe pro Facebook antes de criar o anúncio.
+creative:
+  auto_generate_image: true
+  brand_name: "MILAN LEILÕES"
+  # Caminho (local) ou URL para o arquivo da logo real, em PNG com fundo transparente de
+  # preferência. Deixe em branco para usar um selo de texto com "brand_name" — nunca
+  # inventamos uma logo. Ex: "assets/brand/milan_leiloes_logo.png"
+  logo_path: ""
+  # Cores extraídas da identidade visual real da Milan Leilões (protótipo de referência).
+  color_dark: "#0F1F3D"
+  color_accent: "#D6AF5A"
+  color_secondary: "#03A3BE"
+
 powerbi:
   # Desligado por padrão: o pipeline funciona inteiro sem o Power BI (dashboard web +
   # logs continuam registrando tudo). Depois de configurar o Azure AD e os secrets

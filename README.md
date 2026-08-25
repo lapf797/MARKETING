@@ -8,7 +8,9 @@ máquinas, equipamentos etc.) no Facebook Ads, com cinco camadas:
    visão nativa de PDF — sem nenhum código de extração de imagem escrito à mão), extrai
    cada ativo e já gera a copy do anúncio, o público-alvo e o orçamento sugerido. Cada
    extração vira um **rascunho** para revisão humana antes de qualquer chamada real ao
-   Facebook.
+   Facebook. Ao aprovar, a imagem do criativo é composta automaticamente (foto do ativo
+   realçada + marca + selos de preço/parcelamento/data — veja "Geração automática da
+   imagem do anúncio").
 2. **Públicos semelhantes (lookalike)** — a partir de uma lista de arrematantes/leads
    anteriores, o sistema cria um público personalizado e um semelhante no Facebook,
    aplicados automaticamente em toda nova campanha junto com os interesses sugeridos.
@@ -27,12 +29,13 @@ máquinas, equipamentos etc.) no Facebook Ads, com cinco camadas:
 
 Tudo isso roda sozinho via GitHub Actions, sem precisar de servidor.
 
-> **Origem:** a criação a partir de catálogo (item 1) portou para cá a fórmula de copy, as
-> faixas de orçamento e a lógica de segmentação (interesses/geolocalização resolvidos em
-> IDs reais da Meta, `end_time` automático na data do leilão) de um protótipo que já rodava
-> em produção em Base44 — trocando o `InvokeLLM` genérico do Base44 pela Claude e mantendo
-> as guardrails de segurança e o dashboard já existentes neste repositório. Duas partes
-> daquele protótipo ficaram de fora por enquanto — veja "Próximos passos sugeridos".
+> **Origem:** a criação a partir de catálogo (item 1), a otimização de posicionamento, os
+> públicos semelhantes e a geração automática de imagem portaram para cá a fórmula de copy,
+> as faixas de orçamento, a lógica de segmentação (interesses/geolocalização resolvidos em
+> IDs reais da Meta, `end_time` automático na data do leilão) e a identidade visual de um
+> protótipo que já rodava em produção em Base44 — trocando o `InvokeLLM` genérico do Base44
+> pela Claude, adicionando guardrails de segurança que o protótipo não tinha, e mantendo o
+> dashboard já existente neste repositório.
 
 ## Criar anúncios a partir do catálogo do leilão
 
@@ -114,6 +117,48 @@ A partir daí, toda nova campanha criada por `create_campaigns_from_drafts.py` (
 `suggest_audience.py`) passa a aplicar automaticamente o público semelhante mais recente,
 junto com os interesses — sem precisar de nenhum passo extra. Para desligar isso, mude
 `ads.use_lookalike_audience` para `false`.
+
+## Geração automática da imagem do anúncio
+
+Antes de subir o anúncio, o sistema compõe automaticamente uma imagem de criativo a
+partir da foto real do ativo (`src/creative/`): realça a foto (contraste, cor,
+nitidez, upscale se for pequena demais), sobrepõe a marca (logo real, se configurada, ou
+um selo de texto — nunca inventa uma logo gráfica), o título, a localização, a data do
+leilão e selos de "preço abaixo do mercado" / parcelamento. O resultado é uma imagem
+1080x1080 (compatível com feed do Facebook e do Instagram), enviada para a biblioteca de
+imagens da conta (`FacebookAdsClient.upload_ad_image`) e usada no lugar da foto crua.
+
+Está ligado por padrão (`creative.auto_generate_image: true` em
+`config/settings.yaml`). Se a foto não puder ser baixada/processada por qualquer motivo,
+`create_campaigns_from_drafts.py` cai de volta para a foto original sem interromper a
+criação da campanha, e registra um aviso.
+
+**Para usar a logo real da sua marca**, em vez do selo de texto padrão, edite
+`config/settings.yaml`:
+
+```yaml
+creative:
+  logo_path: "assets/brand/sua_logo.png"   # PNG com fundo transparente, de preferência
+  color_dark: "#0F1F3D"      # cores da sua identidade visual
+  color_accent: "#D6AF5A"
+  color_secondary: "#03A3BE"
+```
+
+`logo_path` aceita tanto um caminho local (dentro do repositório, ex:
+`assets/brand/sua_logo.png`) quanto uma URL pública.
+
+**Para ver o resultado antes de aprovar qualquer rascunho**, sem gastar nenhuma chamada
+de API (Facebook ou Claude):
+
+```bash
+python scripts/preview_ad_creative.py --photo foto_do_imovel.jpg \
+  --headline "Casa 3 quartos com piscina no Jardim das Flores" \
+  --location "Porto Alegre, RS" --auction-date 15/12/2026
+```
+
+Isso salva `preview_creative.jpg` na pasta atual (ajustável com `--output`) para você
+abrir e conferir — útil para testar títulos, cores ou uma logo diferente
+(`--logo outra_logo.png`) antes de mexer em qualquer campanha de verdade.
 
 ## Otimização de posicionamento e demografia (sem mexer em orçamento)
 
@@ -216,10 +261,13 @@ a seguir.
 config/settings.yaml           # limites de segurança, orçamento e parâmetros (sem segredos)
 src/facebook_ads/               # cliente da Graph API + coleta de métricas + resolução de segmentação
 src/ai/                         # prompts e chamadas à Claude (catálogo, recomendação, otimização)
+src/creative/                   # geração automática da imagem do anúncio (realce + marca + selos)
 src/safety/                     # guardrails + trilha de auditoria + rascunhos + log de recomendações
 src/reporting/                  # push para o Power BI
+assets/fonts/                   # fonte vendorizada (Instrument Sans, licença OFL) usada nos criativos
 scripts/analyze_catalog.py             # PDF do catálogo -> rascunhos de anúncio (não toca no Facebook)
 scripts/create_campaigns_from_drafts.py  # rascunhos aprovados -> campanhas reais no Facebook
+scripts/preview_ad_creative.py      # gera uma prévia local do criativo, sem usar nenhuma API
 scripts/sync_custom_audience.py     # CSV de contatos -> público personalizado + semelhante (lookalike)
 scripts/optimize_placements.py      # roda todo dia — posicionamento/demografia, nunca orçamento
 scripts/run_daily_optimization.py   # roda todo dia via GitHub Actions — orçamento
@@ -388,13 +436,20 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
 
 ## Limitações conhecidas
 
-- **Sem extração/associação automática de fotos.** Ao contrário do texto, o sistema não
-  extrai imagens do PDF nem gera uma imagem com máscara/selo de marca sobre a foto do
-  ativo — cada rascunho precisa de uma `picture_url` (uma URL pública de imagem) anexada
-  manualmente antes de aprovar (`create_campaigns_from_drafts.py --draft-id <id>
-  --picture-url ...`). A IA aponta em `photo_page_reference` onde a foto certa está no PDF,
-  para facilitar localizá-la. Ver "Próximos passos" para o que geração de imagem
-  automática exigiria.
+- **A imagem final é composta automaticamente, mas a foto crua ainda é anexada à mão.**
+  O sistema não extrai a foto do ativo do PDF sozinho — cada rascunho ainda precisa de uma
+  `picture_url` (uma URL pública de imagem) anexada manualmente antes de aprovar
+  (`create_campaigns_from_drafts.py --draft-id <id> --picture-url ...`). A IA aponta em
+  `photo_page_reference` onde a foto certa está no PDF, para facilitar localizá-la. A
+  partir daí, a composição (realce, marca, título, selos) é 100% automática — ver "Geração
+  automática da imagem do anúncio".
+- **Sem uma logo real configurada, o criativo usa um selo de texto.** O sistema nunca
+  inventa uma marca gráfica; até você apontar `creative.logo_path` para um arquivo real
+  (`config/settings.yaml`), o topo do criativo mostra o nome da marca em texto. A
+  composição de imagem foi testada visualmente com fotos e logo sintéticas (o ambiente de
+  desenvolvimento não tinha uma foto real de imóvel nem a logo da Milan Leilões à mão) —
+  vale gerar uma prévia (`scripts/preview_ad_creative.py`) com uma foto e a logo reais
+  antes de aprovar o primeiro rascunho de verdade.
 - `scripts/suggest_audience.py` (o fluxo avulso, sem catálogo) cria campanha e adset com
   segmentação já resolvida em IDs reais da Meta, mas **não cria o criativo/anúncio** — só
   o fluxo de catálogo (`analyze_catalog.py` + `create_campaigns_from_drafts.py`) vai até o
@@ -423,10 +478,10 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
 Ficaram de fora desta rodada, por escopo/tempo — nenhum deles é grande o suficiente para
 travar o uso do que já existe, mas valem uma rodada dedicada quando fizer sentido:
 
-- **Geração automática de imagem do anúncio** (extrair fotos do PDF/página e compor uma
-  máscara de marca — selo de preço, parcelamento, data do leilão — sobre a foto). É edição
-  de imagem com escopo próprio; hoje cada rascunho depende de uma `picture_url` anexada
-  manualmente.
+- **Extrair automaticamente a foto do ativo direto do PDF/página do leilão.** A
+  composição da imagem final (realce, marca, selos, data — ver "Geração automática da
+  imagem do anúncio" acima) já é automática; falta só a etapa anterior, hoje manual: cada
+  rascunho ainda depende de uma `picture_url` anexada com `--picture-url`.
 - Workflow do GitHub Actions (`workflow_dispatch`) para `analyze_catalog.py`,
   `create_campaigns_from_drafts.py` e `sync_custom_audience.py`, nos moldes de
   `suggest-audience.yml` — hoje os três só rodam localmente (o PDF do catálogo e o CSV de

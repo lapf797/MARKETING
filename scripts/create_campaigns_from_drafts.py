@@ -28,6 +28,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from src.ai.budget_rules import days_until
 from src.config import AppConfig, load_config
+from src.creative.pipeline import generate_ad_image_bytes
 from src.facebook_ads.client import FacebookAdsClient
 from src.facebook_ads.targeting import resolve_geo_locations, resolve_interests
 from src.safety.audience_registry import get_latest_lookalike
@@ -114,10 +115,21 @@ def _create_one(fb_client: FacebookAdsClient, draft: dict, *, config: AppConfig)
         )
     adset_id = adset["id"]
 
+    image_hash = None
+    if config.creative.auto_generate_image:
+        try:
+            image_bytes = generate_ad_image_bytes(
+                picture_url=picture_url, prop=prop, pause_date=draft.get("pause_date"), config=config,
+            )
+            image_hash = fb_client.upload_ad_image(image_bytes, filename=f"{draft['draft_id']}.jpg")["hash"]
+        except Exception as exc:
+            image_note = f"não foi possível gerar o criativo automático, usando a foto original: {exc}"
+            warning = f"{warning}; {image_note}" if warning else image_note
+
     creative = fb_client.create_ad_creative(
         name=f"{draft['campaign_name']} - Criativo", page_id=page_id, link=link_url,
         message=prop["primary_text"], headline=prop["headline"], description=prop["ad_description"],
-        picture_url=picture_url,
+        picture_url=picture_url, image_hash=image_hash,
     )
     ad = fb_client.create_ad(name=f"{draft['campaign_name']} - Anúncio", adset_id=adset_id,
                               creative_id=creative["id"], status=default_status)
@@ -127,6 +139,7 @@ def _create_one(fb_client: FacebookAdsClient, draft: dict, *, config: AppConfig)
         "ad_id": ad["id"], "daily_budget_cents": daily_budget_cents, "warning": warning,
         "interests_applied": [i["name"] for i in interests],
         "lookalike_applied": lookalike_id,
+        "image_generated": image_hash is not None,
     }
 
 
@@ -207,12 +220,14 @@ def main() -> None:
             before_value=None, after_value=str(result["daily_budget_cents"]),
             reasoning=(f"campanha criada a partir do catálogo — interesses aplicados: "
                        f"{', '.join(result['interests_applied']) or 'nenhum'}"
-                       f"{'; público semelhante aplicado' if result['lookalike_applied'] else ''}"),
+                       f"{'; público semelhante aplicado' if result['lookalike_applied'] else ''}"
+                       f"{'; imagem do criativo gerada automaticamente' if result['image_generated'] else ''}"),
             confidence=prop.get("confidence", 0.5), status="applied", dry_run=False,
         )
         print(f"      Criado: campanha {result['campaign_id']}, "
               f"orçamento R$ {result['daily_budget_cents'] / 100:.2f}/dia"
-              f"{', com público semelhante' if result['lookalike_applied'] else ''}")
+              f"{', com público semelhante' if result['lookalike_applied'] else ''}"
+              f"{', com imagem gerada automaticamente' if result['image_generated'] else ''}")
         if result["warning"]:
             print(f"      Aviso: {result['warning']}")
 

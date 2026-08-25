@@ -186,8 +186,24 @@ class FacebookAdsClient:
             data["end_time"] = end_time
         return self._post(f"{self.ad_account_id}/adsets", data)
 
+    def upload_ad_image(self, image_bytes: bytes, *, filename: str = "creative.jpg") -> dict:
+        """Envia uma imagem para a biblioteca de imagens da conta (POST /act_<id>/adimages,
+        multipart) e devolve o hash que a Meta atribuiu a ela — usado depois em
+        create_ad_creative(image_hash=...) no lugar de uma picture_url pública, para anunciar
+        o criativo já composto (src/creative/overlay.py) em vez da foto crua do ativo."""
+        url = f"{self.base_url}/{self.ad_account_id}/adimages"
+        files = {filename: (filename, image_bytes, "image/jpeg")}
+        data = {"access_token": self._token}
+        response = self._session.post(url, data=data, files=files, timeout=self.timeout)
+        payload = self._handle_response(response)
+        image_data = payload.get("images", {}).get(filename, {})
+        if not image_data.get("hash"):
+            raise FacebookAdsError("Upload de imagem não retornou hash", payload=payload)
+        return {"hash": image_data["hash"], "url": image_data.get("url")}
+
     def create_ad_creative(self, *, name: str, page_id: str, link: str, message: str,
-                            headline: str, description: str, picture_url: str | None = None) -> dict:
+                            headline: str, description: str, picture_url: str | None = None,
+                            image_hash: str | None = None) -> dict:
         link_data: dict[str, Any] = {
             "message": message,
             "link": link,
@@ -195,7 +211,9 @@ class FacebookAdsClient:
             "description": description,
             "call_to_action": {"type": "LEARN_MORE", "value": {"link": link}},
         }
-        if picture_url:
+        if image_hash:
+            link_data["image_hash"] = image_hash
+        elif picture_url:
             link_data["picture"] = picture_url
         data = {
             "name": name,
