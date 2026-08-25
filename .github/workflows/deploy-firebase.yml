@@ -43,4 +43,4 @@ jobs:
           echo "$GCP_SA_KEY" > "$RUNNER_TEMP/gcp-key.json"
           export GOOGLE_APPLICATION_CREDENTIALS="$RUNNER_TEMP/gcp-key.json"
           firebase deploy --only functions,firestore:rules \
-            --project "$FIREBASE_PROJECT_ID" --non-interactive
+            --project "$FIREBASE_PROJECT_ID" --non-interactive --force
