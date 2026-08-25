@@ -50,6 +50,11 @@ safety:
     # Frequência acima deste valor sinaliza fadiga de criativo/público.
     max_frequency: 4.0
 
+  # Impressões mínimas antes do otimizador de posicionamento (scripts/optimize_placements.py)
+  # poder agir sobre uma campanha — esse otimizador nunca mexe em orçamento, só em
+  # posicionamento/idade/gênero, mas ainda precisa de volume mínimo para decidir com segurança.
+  min_impressions_before_placement_action: 500
+
 facebook:
   api_version: "v23.0"
   # Quantos dias de histórico buscar a cada execução diária.
@@ -88,6 +93,15 @@ ads:
   # campanha pode ir ao ar direto. Use "PAUSED" se preferir sempre revisar no Gerenciador
   # de Anúncios antes de ativar.
   default_campaign_status: "ACTIVE"
+
+  # Público semelhante (lookalike): quando true e já existir um sincronizado via
+  # scripts/sync_custom_audience.py, ele é aplicado automaticamente em toda nova campanha
+  # criada a partir do catálogo, além dos interesses sugeridos pela IA.
+  use_lookalike_audience: true
+  # Tamanho do público semelhante: 0.01 (1%, mais parecido, menor alcance) a 0.20 (20%,
+  # menos parecido, maior alcance). 0.05 = os 5% mais parecidos com a base enviada.
+  lookalike_ratio: 0.05
+  lookalike_country: "BR"
 
 powerbi:
   # Desligado por padrão: o pipeline funciona inteiro sem o Power BI (dashboard web +

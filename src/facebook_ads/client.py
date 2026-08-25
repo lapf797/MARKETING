@@ -59,6 +59,12 @@ class FacebookAdsClient:
         response = self._session.post(f"{self.base_url}/{path.lstrip('/')}", data=body, timeout=self.timeout)
         return self._handle_response(response)
 
+    def _delete(self, path: str, params: dict[str, Any] | None = None) -> dict[str, Any]:
+        query = dict(params or {})
+        query.setdefault("access_token", self._token)
+        response = self._session.delete(f"{self.base_url}/{path.lstrip('/')}", params=query, timeout=self.timeout)
+        return self._handle_response(response)
+
     def _paginate(self, path: str, params: dict[str, Any]) -> list[dict[str, Any]]:
         results: list[dict[str, Any]] = []
         payload = self._get(path, params)
@@ -91,6 +97,13 @@ class FacebookAdsClient:
         return self._paginate(
             f"{adset_id}/ads", {"fields": "id,name,status,effective_status,creative", "limit": 100}
         )
+
+    def get_object(self, object_id: str, fields: list[str]) -> dict:
+        """Leitura genérica de um único objeto (campanha/adset/anúncio) por ID — usada
+        tanto para buscar o targeting atual de um adset quanto para conferir, depois de uma
+        mudança, o que a Meta de fato salvou (ela às vezes ajusta silenciosamente o que foi
+        enviado)."""
+        return self._get(object_id, {"fields": ",".join(fields)})
 
     def get_insights(self, object_id: str, *, date_preset: str | None = None,
                       since: str | None = None, until: str | None = None,
@@ -209,3 +222,40 @@ class FacebookAdsClient:
         params.update(extra_params or {})
         payload = self._get("search", params)
         return payload.get("data", [])
+
+    # -------------------------------------------------------- públicos personalizados
+
+    def create_custom_audience(self, *, name: str, description: str = "", subtype: str = "CUSTOM",
+                                customer_file_source: str = "USER_PROVIDED_ONLY") -> dict:
+        data: dict[str, Any] = {
+            "name": name, "subtype": subtype, "customer_file_source": customer_file_source,
+        }
+        if description:
+            data["description"] = description
+        return self._post(f"{self.ad_account_id}/customaudiences", data)
+
+    def add_users_to_custom_audience(self, audience_id: str, *, schema: list[str],
+                                      hashed_rows: list[list[str]]) -> dict:
+        """schema/hashed_rows seguem o formato da Custom Audience API: schema é a lista de
+        tipos de identificador em cada linha (ex: ["EMAIL"] ou ["EMAIL", "PHONE"]), e cada
+        linha de hashed_rows já deve vir com os valores normalizados e hasheados em SHA-256
+        (ver src/facebook_ads/audiences.py) — a Graph API não aceita dado em texto puro."""
+        payload = {"schema": schema, "data": hashed_rows}
+        return self._post(f"{audience_id}/users", {"payload": json.dumps(payload)})
+
+    def create_lookalike_audience(self, *, name: str, origin_audience_id: str,
+                                   country: str = "BR", ratio: float = 0.05) -> dict:
+        data = {
+            "name": name,
+            "subtype": "LOOKALIKE",
+            "origin_audience_id": origin_audience_id,
+            "lookalike_spec": json.dumps({"type": "similarity", "ratio": ratio, "country": country}),
+        }
+        return self._post(f"{self.ad_account_id}/customaudiences", data)
+
+    def list_custom_audiences(self) -> list[dict]:
+        fields = "id,name,subtype,approximate_count_lower_bound,approximate_count_upper_bound,operation_status"
+        return self._paginate(f"{self.ad_account_id}/customaudiences", {"fields": fields, "limit": 100})
+
+    def delete_audience(self, audience_id: str) -> dict:
+        return self._delete(audience_id)

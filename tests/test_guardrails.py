@@ -26,6 +26,7 @@ def make_config(**overrides) -> SafetyConfig:
         max_frequency=4.0,
         require_ai_confidence=0.6,
         currency_minor_unit_factor=100,
+        min_impressions_before_placement_action=500,
     )
     defaults.update(overrides)
     return SafetyConfig(**defaults)

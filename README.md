@@ -1,7 +1,7 @@
 # Marketing — Leilões no Facebook Ads com IA
 
 Sistema de marketing automatizado para promover ativos de leilão (imóveis, veículos,
-máquinas, equipamentos etc.) no Facebook Ads, com quatro camadas:
+máquinas, equipamentos etc.) no Facebook Ads, com cinco camadas:
 
 1. **Criação de anúncios a partir do catálogo do leilão** — envie o PDF do catálogo
    inteiro (dezenas de lotes de uma vez); a Claude lê o documento (texto e fotos, com
@@ -9,13 +9,17 @@ máquinas, equipamentos etc.) no Facebook Ads, com quatro camadas:
    cada ativo e já gera a copy do anúncio, o público-alvo e o orçamento sugerido. Cada
    extração vira um **rascunho** para revisão humana antes de qualquer chamada real ao
    Facebook.
-2. **Recomendação de público-alvo avulsa** — para um único ativo (por link ou dados
+2. **Públicos semelhantes (lookalike)** — a partir de uma lista de arrematantes/leads
+   anteriores, o sistema cria um público personalizado e um semelhante no Facebook,
+   aplicados automaticamente em toda nova campanha junto com os interesses sugeridos.
+3. **Recomendação de público-alvo avulsa** — para um único ativo (por link ou dados
    manuais), a Claude analisa o histórico de performance da conta e sugere o público ideal.
-3. **Otimização diária automática** — todo dia, a Claude analisa a performance recente de
-   todas as campanhas ativas e propõe ajustes (orçamento, pausas, retomadas). Essas ações
-   passam por um conjunto de **guardrails de segurança** (limites configuráveis por você)
-   antes de serem aplicadas de verdade no Facebook Ads.
-4. **Dashboard web + Power BI** — um painel estático (`docs/index.html`, publicável via
+4. **Otimização diária automática** — todo dia, a Claude analisa a performance recente de
+   todas as campanhas ativas em duas frentes: orçamento (aumentar/diminuir/pausar/retomar)
+   e, separadamente, posicionamento/demografia sem tocar em orçamento (concentrar a mesma
+   verba onde o clique já saiu mais barato). Ambas passam por **guardrails de segurança**
+   (limites configuráveis por você) antes de serem aplicadas de verdade no Facebook Ads.
+5. **Dashboard web + Power BI** — um painel estático (`docs/index.html`, publicável via
    GitHub Pages) mostra gasto, conversões, decisões da IA, rascunhos pendentes de
    aprovação e recomendações — sem precisar de nenhuma ferramenta externa. O Power BI
    (opcional) recebe os mesmos dados em tempo real, para relatórios mais robustos e
@@ -86,6 +90,50 @@ Por padrão a campanha já nasce **ativa** (`ads.default_campaign_status` em
 `config/settings.yaml`) — igual ao comportamento validado no protótipo anterior, já que essa
 etapa em si *é* a aprovação humana. Mude para `"PAUSED"` se preferir sempre revisar no
 Gerenciador de Anúncios antes de ativar.
+
+## Públicos semelhantes (lookalike)
+
+Se você tem uma exportação de arrematantes/leads anteriores (um CSV com e-mail e/ou
+telefone), dá para usar isso como uma camada a mais de segmentação — além dos interesses
+que a IA sugere:
+
+```bash
+python scripts/sync_custom_audience.py --csv contatos.csv --name "Compradores de Leilao" \
+  --email-column email --phone-column celular
+```
+
+O script normaliza e transforma cada contato em um hash SHA-256 (a Graph API nunca recebe
+e-mail/telefone em texto puro), cria um **Público Personalizado** no Facebook, envia os
+contatos em lotes, e a partir dele cria um **Público Semelhante (Lookalike)** — por padrão,
+os 5% de usuários mais parecidos com a sua base (`ads.lookalike_ratio` em
+`config/settings.yaml`). Note que a Meta pode levar algumas horas para processar um público
+novo antes de aceitar gerar o semelhante a partir dele; se isso acontecer, o script avisa e
+basta rodar de novo mais tarde.
+
+A partir daí, toda nova campanha criada por `create_campaigns_from_drafts.py` (ou por
+`suggest_audience.py`) passa a aplicar automaticamente o público semelhante mais recente,
+junto com os interesses — sem precisar de nenhum passo extra. Para desligar isso, mude
+`ads.use_lookalike_audience` para `false`.
+
+## Otimização de posicionamento e demografia (sem mexer em orçamento)
+
+Complementar à otimização diária de orçamento (abaixo): todo dia, antes de decidir quanto
+gastar, `scripts/optimize_placements.py` analisa cada campanha ativa e — com o **mesmo**
+orçamento — concentra a verba nos posicionamentos (feed, stories, reels, etc.) e na faixa
+de idade/gênero que já provaram clique mais barato. Nunca propõe mudança de valor gasto —
+essa é a alavanca mais conservadora do sistema, e roda automaticamente todo dia junto com o
+resto (`.github/workflows/daily-optimization.yml`). Pode ser rodado manualmente também:
+
+```bash
+python scripts/optimize_placements.py --dry-run          # só mostra o plano
+python scripts/optimize_placements.py --campaign-id 123   # uma campanha específica
+```
+
+Só age quando há volume suficiente para decidir com segurança
+(`safety.min_impressions_before_placement_action`), nunca estreita a faixa etária abaixo de
+15 anos de amplitude, e só restringe gênero quando a diferença de CTR/CPC entre eles for
+grande (mais de 40%). Se a Meta recusar o recorte de posicionamentos, o sistema tenta de
+novo aplicando só o ajuste de idade/gênero antes de desistir.
 
 ## Como funciona (visão geral)
 
@@ -172,12 +220,14 @@ src/safety/                     # guardrails + trilha de auditoria + rascunhos +
 src/reporting/                  # push para o Power BI
 scripts/analyze_catalog.py             # PDF do catálogo -> rascunhos de anúncio (não toca no Facebook)
 scripts/create_campaigns_from_drafts.py  # rascunhos aprovados -> campanhas reais no Facebook
-scripts/run_daily_optimization.py   # roda todo dia via GitHub Actions
+scripts/sync_custom_audience.py     # CSV de contatos -> público personalizado + semelhante (lookalike)
+scripts/optimize_placements.py      # roda todo dia — posicionamento/demografia, nunca orçamento
+scripts/run_daily_optimization.py   # roda todo dia via GitHub Actions — orçamento
 scripts/suggest_audience.py         # roda sob demanda para um ativo avulso (CLI local)
 scripts/run_suggest_audience_from_env.py  # mesma coisa, via variáveis de ambiente (GitHub Actions)
 scripts/setup_powerbi_dataset.py    # roda uma única vez, na configuração inicial
 scripts/rollback.py                 # reverte manualmente a última ação em um alvo
-.github/workflows/daily-optimization.yml   # agenda a execução diária (+ Run workflow manual)
+.github/workflows/daily-optimization.yml   # agenda a execução diária (posicionamento + orçamento)
 .github/workflows/suggest-audience.yml     # dispara scripts/suggest_audience.py pela interface do GitHub
 .github/workflows/ci.yml                   # roda os testes em cada PR
 docs/index.html                 # dashboard web (publicável via GitHub Pages)
@@ -186,7 +236,8 @@ docs/drafts_data.json           # rascunhos de anúncio que alimentam o dashboar
 logs/audit_log.jsonl            # trilha de auditoria (append-only, versionada no git)
 logs/audience_recommendations.jsonl   # histórico de recomendações de público avulsas
 logs/ad_drafts.json             # rascunhos de anúncio do catálogo (mutável — status muda com a revisão)
-tests/                          # testes das guardrails, regras de orçamento e rascunhos
+logs/custom_audiences.json      # públicos personalizados/semelhantes sincronizados (mutável)
+tests/                          # testes das guardrails, regras de orçamento, targeting e rascunhos
 ```
 
 ## Configuração inicial
@@ -376,18 +427,12 @@ travar o uso do que já existe, mas valem uma rodada dedicada quando fizer senti
   máscara de marca — selo de preço, parcelamento, data do leilão — sobre a foto). É edição
   de imagem com escopo próprio; hoje cada rascunho depende de uma `picture_url` anexada
   manualmente.
-- **Otimizador de posicionamento/demografia sem mexer em orçamento** — um segundo tipo de
-  ajuste diário, complementar ao atual (que realoca orçamento): manter só os
-  posicionamentos e a faixa etária/gênero que já provaram CPC mais barato, com o mesmo
-  gasto. É uma alavanca mais conservadora que vale considerar ao lado das guardrails de
-  orçamento existentes.
-- **Públicos semelhantes (lookalike)** a partir da base de leads/arrematantes anteriores,
-  combinados aos interesses na segmentação — hoje a segmentação usa só interesses e
-  geolocalização.
-- Workflow do GitHub Actions (`workflow_dispatch`) para `analyze_catalog.py` e
-  `create_campaigns_from_drafts.py`, nos moldes de `suggest-audience.yml` — hoje esses dois
-  só rodam localmente (o PDF do catálogo precisaria estar hospedado numa URL, já que
-  formulários do GitHub Actions não aceitam upload de arquivo).
+- Workflow do GitHub Actions (`workflow_dispatch`) para `analyze_catalog.py`,
+  `create_campaigns_from_drafts.py` e `sync_custom_audience.py`, nos moldes de
+  `suggest-audience.yml` — hoje os três só rodam localmente (o PDF do catálogo e o CSV de
+  contatos precisariam estar hospedados numa URL, já que formulários do GitHub Actions não
+  aceitam upload de arquivo). `optimize_placements.py` já roda automaticamente todo dia,
+  sem precisar disso.
 - Criar relatórios/dashboards no Power BI em cima das tabelas `CampaignPerformance`,
   `OptimizerActions` e `AudienceRecommendations`.
 - Considerar alertas (e-mail/Slack) quando a IA sinalizar `flag_for_audience_refresh` ou

@@ -30,13 +30,15 @@ from src.ai.budget_rules import days_until
 from src.config import AppConfig, load_config
 from src.facebook_ads.client import FacebookAdsClient
 from src.facebook_ads.targeting import resolve_geo_locations, resolve_interests
+from src.safety.audience_registry import get_latest_lookalike
 from src.safety.audit_log import log_action
 from src.safety.draft_log import get_draft, read_drafts, update_draft, write_dashboard_snapshot
 
 _GENDER_CODES = {"male": [1], "female": [2], "all": [0]}
 
 
-def _create_one(fb_client: FacebookAdsClient, draft: dict, *, default_status: str) -> dict:
+def _create_one(fb_client: FacebookAdsClient, draft: dict, *, config: AppConfig) -> dict:
+    default_status = config.ads.default_campaign_status
     prop = draft["property"]
     account_id = draft.get("account_id")
     page_id = draft.get("page_id")
@@ -67,6 +69,12 @@ def _create_one(fb_client: FacebookAdsClient, draft: dict, *, default_status: st
     interests = resolve_interests(fb_client, prop.get("interests") or [])
     genders = _GENDER_CODES[prop["gender_targeting"]]
 
+    lookalike_id = None
+    if config.ads.use_lookalike_audience:
+        lookalike = get_latest_lookalike()
+        if lookalike:
+            lookalike_id = lookalike["lookalike_audience_id"]
+
     base_targeting = {
         "geo_locations": geo,
         "age_min": prop["age_min"],
@@ -79,6 +87,10 @@ def _create_one(fb_client: FacebookAdsClient, draft: dict, *, default_status: st
     targeting = dict(base_targeting)
     if interests:
         targeting["flexible_spec"] = [{"interests": interests}]
+    if lookalike_id:
+        # Camada extra de segmentação por cima dos interesses: um público semelhante aos
+        # arrematantes/leads anteriores (sincronizado via scripts/sync_custom_audience.py).
+        targeting["custom_audiences"] = [{"id": lookalike_id}]
 
     end_time = f"{draft['pause_date']}T23:59:59-03:00" if draft.get("pause_date") else None
 
@@ -91,9 +103,9 @@ def _create_one(fb_client: FacebookAdsClient, draft: dict, *, default_status: st
             end_time=end_time,
         )
     except Exception as exc:
-        if not interests:
+        if not interests and not lookalike_id:
             raise  # nada de refinado a remover — o erro não é sobre o público, repropagar
-        warning = f"a Meta recusou os interesses sugeridos e eles foram removidos: {exc}"
+        warning = f"a Meta recusou os interesses/público semelhante sugeridos e eles foram removidos: {exc}"
         adset = fb_client.create_adset(
             campaign_id=campaign_id, name=f"{draft['campaign_name']} - Conjunto",
             daily_budget_cents=daily_budget_cents, targeting=base_targeting,
@@ -114,6 +126,7 @@ def _create_one(fb_client: FacebookAdsClient, draft: dict, *, default_status: st
         "campaign_id": campaign_id, "adset_id": adset_id, "creative_id": creative["id"],
         "ad_id": ad["id"], "daily_budget_cents": daily_budget_cents, "warning": warning,
         "interests_applied": [i["name"] for i in interests],
+        "lookalike_applied": lookalike_id,
     }
 
 
@@ -172,7 +185,7 @@ def main() -> None:
         if not args.confirm:
             continue
         try:
-            result = _create_one(fb_client, draft, default_status=config.ads.default_campaign_status)
+            result = _create_one(fb_client, draft, config=config)
         except Exception as exc:
             print(f"      ERRO: {exc}")
             update_draft(draft["draft_id"], status="erro", error_message=str(exc))
@@ -193,11 +206,13 @@ def main() -> None:
             target_id=result["campaign_id"], target_name=prop["title"],
             before_value=None, after_value=str(result["daily_budget_cents"]),
             reasoning=(f"campanha criada a partir do catálogo — interesses aplicados: "
-                       f"{', '.join(result['interests_applied']) or 'nenhum'}"),
+                       f"{', '.join(result['interests_applied']) or 'nenhum'}"
+                       f"{'; público semelhante aplicado' if result['lookalike_applied'] else ''}"),
             confidence=prop.get("confidence", 0.5), status="applied", dry_run=False,
         )
         print(f"      Criado: campanha {result['campaign_id']}, "
-              f"orçamento R$ {result['daily_budget_cents'] / 100:.2f}/dia")
+              f"orçamento R$ {result['daily_budget_cents'] / 100:.2f}/dia"
+              f"{', com público semelhante' if result['lookalike_applied'] else ''}")
         if result["warning"]:
             print(f"      Aviso: {result['warning']}")
 

@@ -34,6 +34,7 @@ from src.ai.listing_extractor import extract_listing
 from src.config import load_config
 from src.facebook_ads.client import FacebookAdsClient
 from src.facebook_ads.targeting import resolve_geo_locations_free_text, resolve_interests
+from src.safety.audience_registry import get_latest_lookalike
 from src.facebook_ads.insights import fetch_audience_breakdown
 from src.reporting.powerbi_push import PowerBIClient
 from src.safety.recommendation_log import log_recommendation
@@ -162,6 +163,12 @@ def run_suggestion(*, url: str | None, category: str | None, description: str | 
     interests = resolve_interests(fb_client, recommendation.interests)
     geo = resolve_geo_locations_free_text(fb_client, recommendation.geo_locations)
 
+    lookalike_id = None
+    if config.ads.use_lookalike_audience:
+        lookalike = get_latest_lookalike()
+        if lookalike:
+            lookalike_id = lookalike["lookalike_audience_id"]
+
     print("Criando campanha e adset PAUSADOS no Facebook Ads para revisão...")
     campaign = fb_client.create_campaign(
         name=f"[IA] {category} - {description[:60]}",
@@ -177,6 +184,8 @@ def run_suggestion(*, url: str | None, category: str | None, description: str | 
     }
     if interests:
         targeting["flexible_spec"] = [{"interests": interests}]
+    if lookalike_id:
+        targeting["custom_audiences"] = [{"id": lookalike_id}]
     adset = fb_client.create_adset(
         campaign_id=campaign["id"], name=f"[IA] Publico sugerido - {description[:40]}",
         daily_budget_cents=recommendation.suggested_daily_budget_cents,
@@ -186,6 +195,8 @@ def run_suggestion(*, url: str | None, category: str | None, description: str | 
     print(f"Adset criado (PAUSADO): {adset['id']}")
     print(f"Interesses aplicados: {', '.join(i['name'] for i in interests) or 'nenhum encontrado'}")
     print(f"Geolocalização aplicada: {geo}")
+    if lookalike_id:
+        print(f"Público semelhante aplicado: {lookalike_id}")
     print("\nRevise a segmentação e o criativo no Gerenciador de Anúncios antes de ativar — "
           "este script cria campanha e adset, mas ainda não o criativo/anúncio (foto e texto "
           "finais). Para o fluxo completo com criativo pronto, veja "

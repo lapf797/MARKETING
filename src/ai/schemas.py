@@ -91,3 +91,27 @@ class CatalogAnalysis(BaseModel):
     total_properties: int
     summary: str
     properties: list[PropertyAdListing]
+
+
+class PlatformPlacement(BaseModel):
+    platform: Literal["facebook", "instagram", "audience_network", "messenger"]
+    placement: str = Field(description="Nome do posicionamento como aparece nos dados de insights (ex: 'feed', 'story', 'reels').")
+
+
+class PlacementOptimizationPlan(BaseModel):
+    """Ajuste de posicionamento e demografia com o MESMO orçamento — nunca propõe mudança
+    de valor gasto, só concentra a verba onde/para quem já provou clique mais barato. Ver
+    src/ai/placement_optimizer.py."""
+    should_apply: bool = Field(description="False quando não há volume suficiente ou nenhum ajuste seguro a fazer — nesse caso, explique em reason_if_not_applying.")
+    reason_if_not_applying: str | None = None
+    platforms_to_keep: list[Literal["facebook", "instagram", "audience_network", "messenger"]] = Field(default_factory=list)
+    placements_to_keep: list[PlatformPlacement] = Field(default_factory=list)
+    age_min: int = Field(ge=18, le=65, default=18)
+    age_max: int = Field(ge=18, le=65, default=65)
+    gender_targeting: Literal["male", "female", "all"] = "all"
+    expected_ctr: str | None = Field(default=None, description='Estimativa de CTR após o ajuste, ex: "1,8%".')
+    expected_cpc: str | None = Field(default=None, description='Estimativa de CPC após o ajuste, ex: "R$ 0,45".')
+    expected_clicks_change: str | None = Field(default=None, description='Estimativa de ganho em cliques com a mesma verba, ex: "+30%".')
+    explanation: str = Field(description="Explicação do ajuste em 2-3 frases, linguagem simples.")
+    creative_suggestion: str | None = Field(default=None, description="Sugestão de texto/chamada para elevar o CTR — não aplicada automaticamente.")
+    confidence: float = Field(ge=0.0, le=1.0)

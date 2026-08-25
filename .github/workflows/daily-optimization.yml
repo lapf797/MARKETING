@@ -29,7 +29,16 @@ jobs:
       - name: Instalar dependencias
         run: pip install -r requirements.txt
 
-      - name: Rodar otimizacao diaria
+      - name: Rodar otimizacao de posicionamento e demografia (nao mexe em orcamento)
+        env:
+          FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}
+          FB_APP_ID: ${{ secrets.FB_APP_ID }}
+          FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/optimize_placements.py
+
+      - name: Rodar otimizacao diaria de orcamento
         env:
           FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
           FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}

@@ -28,6 +28,7 @@ class SafetyConfig:
     max_frequency: float
     require_ai_confidence: float
     currency_minor_unit_factor: int
+    min_impressions_before_placement_action: int
 
 
 @dataclass
@@ -58,6 +59,9 @@ class AdsConfig:
     highlight_installments: bool
     highlight_below_market_price: bool
     default_campaign_status: str
+    use_lookalike_audience: bool
+    lookalike_ratio: float
+    lookalike_country: str
 
 
 @dataclass
@@ -117,6 +121,7 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         max_frequency=float(pause_raw["max_frequency"]),
         require_ai_confidence=float(safety_raw["require_ai_confidence"]),
         currency_minor_unit_factor=int(safety_raw["currency_minor_unit_factor"]),
+        min_impressions_before_placement_action=int(safety_raw.get("min_impressions_before_placement_action", 500)),
     )
 
     fb_raw = raw["facebook"]
@@ -166,6 +171,9 @@ def load_config(path: str | Path | None = None) -> AppConfig:
         highlight_installments=bool(ads_raw.get("highlight_installments", True)),
         highlight_below_market_price=bool(ads_raw.get("highlight_below_market_price", True)),
         default_campaign_status=str(ads_raw.get("default_campaign_status", "ACTIVE")),
+        use_lookalike_audience=bool(ads_raw.get("use_lookalike_audience", True)),
+        lookalike_ratio=float(ads_raw.get("lookalike_ratio", 0.05)),
+        lookalike_country=str(ads_raw.get("lookalike_country", "BR")),
     )
 
     return AppConfig(safety=safety, facebook=facebook, ai=ai, powerbi=powerbi, ads=ads)
