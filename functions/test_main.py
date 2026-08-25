@@ -63,6 +63,17 @@ def test_oauth_callback_url_derived_from_oauth_callback_request_itself():
         assert main._oauth_callback_url(request) == f"{BASE}/oauth_callback"
 
 
+def test_oauth_callback_url_forces_https_even_if_request_reports_http():
+    # Cloud Run/Functions termina o TLS num proxy antes da requisição chegar aqui — por
+    # dentro, req.url às vezes aparece como "http://" mesmo a chamada pública sendo https.
+    # A Meta recusa o login se a redirect_uri não for https, então isso precisa ser forçado.
+    http_base = BASE.replace("https://", "http://")
+    with app.test_request_context(f"{http_base}/connect_facebook"):
+        assert main._oauth_callback_url(request) == f"{BASE}/oauth_callback"
+    with app.test_request_context(f"{http_base}/oauth_callback?code=abc&state=xyz"):
+        assert main._oauth_callback_url(request) == f"{BASE}/oauth_callback"
+
+
 def test_connect_facebook_redirects_to_facebook_oauth_dialog():
     with app.test_request_context(f"{BASE}/connect_facebook"):
         response = main.connect_facebook(request)

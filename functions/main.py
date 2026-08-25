@@ -84,8 +84,16 @@ def _oauth_callback_url(req: https_fn.Request) -> str:
     """URL do oauth_callback, deduzida a partir do request atual — não precisamos hardcodar
     o domínio (que só existe depois do primeiro deploy). Funciona tanto chamada de dentro do
     connect_facebook (deriva trocando o nome da função na URL) quanto de dentro do próprio
-    oauth_callback (a URL do request já É a certa)."""
+    oauth_callback (a URL do request já É a certa).
+
+    O Cloud Run/Functions termina o HTTPS num proxy antes da requisição chegar aqui — por
+    dentro, req.url às vezes aparece como "http://" mesmo a chamada pública tendo sido
+    https. Forçamos "https://" sempre: os domínios *.cloudfunctions.net só são servidos por
+    HTTPS mesmo, então isso nunca está errado, e evita a Meta recusar o login por achar a
+    redirect_uri insegura."""
     path_without_query = req.url.split("?", 1)[0]
+    if path_without_query.startswith("http://"):
+        path_without_query = "https://" + path_without_query[len("http://"):]
     if path_without_query.endswith("/connect_facebook"):
         return path_without_query.rsplit("/", 1)[0] + "/oauth_callback"
     return path_without_query
