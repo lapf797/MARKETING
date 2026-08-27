@@ -14,3 +14,6 @@ preview_creative*.jpg
 .firebaserc
 firebase-debug.log
 .firebase/
+# functions/.env guarda só valores não sensíveis (ex: META_LOGIN_CONFIG_ID) e é versionado
+# de propósito — segredos de verdade ficam no Secret Manager, nunca em arquivo .env.
+!functions/.env
