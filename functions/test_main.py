@@ -94,6 +94,29 @@ def test_connect_facebook_includes_required_ads_scopes():
             assert scope in location
 
 
+def test_connect_facebook_uses_config_id_instead_of_scope_when_configured():
+    # Apps novos da Meta vêm só com "Login do Facebook para Empresas", que define as
+    # permissões numa Configuração (config_id) em vez de aceitar "scope" solto.
+    os.environ["META_LOGIN_CONFIG_ID"] = "998877665544"
+    try:
+        with app.test_request_context(f"{BASE}/connect_facebook"):
+            response = main.connect_facebook(request)
+    finally:
+        del os.environ["META_LOGIN_CONFIG_ID"]
+    query = parse_qs(urlparse(response.headers["Location"]).query)
+    assert query["config_id"] == ["998877665544"]
+    assert "scope" not in query
+
+
+def test_connect_facebook_falls_back_to_scope_when_no_config_id():
+    os.environ.pop("META_LOGIN_CONFIG_ID", None)
+    with app.test_request_context(f"{BASE}/connect_facebook"):
+        response = main.connect_facebook(request)
+    query = parse_qs(urlparse(response.headers["Location"]).query)
+    assert "config_id" not in query
+    assert "ads_management" in query["scope"][0]
+
+
 def test_oauth_callback_shows_friendly_message_when_user_cancels():
     with app.test_request_context(f"{BASE}/oauth_callback?error=access_denied&error_description=cancelado+pelo+usuario"):
         response = main.oauth_callback(request)

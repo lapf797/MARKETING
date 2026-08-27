@@ -30,13 +30,20 @@ import requests
 from firebase_admin import firestore
 from firebase_functions import https_fn, scheduler_fn
 from firebase_functions.options import CorsOptions
-from firebase_functions.params import SecretParam
+from firebase_functions.params import SecretParam, StringParam
 
 firebase_admin.initialize_app()
 
 META_APP_ID = SecretParam("META_APP_ID")
 META_APP_SECRET = SecretParam("META_APP_SECRET")
 TOKEN_API_KEY = SecretParam("TOKEN_API_KEY")
+
+# Não é segredo (é só um identificador, como o próprio client_id) — por isso StringParam em
+# vez de SecretParam, e com default vazio pra não travar o deploy antes de existir uma
+# Configuração criada no App da Meta. Apps novos da Meta vêm só com "Login do Facebook para
+# Empresas" (não o clássico "Login do Facebook"), que exige um config_id de uma Configuração
+# em vez de pedir escopos soltos — ver docs/SETUP_FIREBASE_OAUTH.md.
+META_LOGIN_CONFIG_ID = StringParam("META_LOGIN_CONFIG_ID", default="")
 
 GRAPH_API_VERSION = "v23.0"
 GRAPH_BASE_URL = f"https://graph.facebook.com/{GRAPH_API_VERSION}"
@@ -107,9 +114,15 @@ def connect_facebook(req: https_fn.Request) -> https_fn.Response:
         "client_id": META_APP_ID.value,
         "redirect_uri": redirect_uri,
         "state": state,
-        "scope": OAUTH_SCOPES,
         "response_type": "code",
     }
+    # Apps novos da Meta vêm só com "Login do Facebook para Empresas": as permissões são
+    # definidas numa Configuração (com um config_id), em vez de pedidas soltas via "scope".
+    config_id = META_LOGIN_CONFIG_ID.value
+    if config_id:
+        params["config_id"] = config_id
+    else:
+        params["scope"] = OAUTH_SCOPES
     auth_url = f"https://www.facebook.com/{GRAPH_API_VERSION}/dialog/oauth?{urllib.parse.urlencode(params)}"
     return https_fn.Response(status=302, headers={"Location": auth_url})
 
