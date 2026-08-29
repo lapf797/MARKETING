@@ -32,6 +32,8 @@ jobs:
       - name: Rodar otimizacao de posicionamento e demografia (nao mexe em orcamento)
         env:
           FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_TOKEN_ENDPOINT_URL: ${{ secrets.FB_TOKEN_ENDPOINT_URL }}
+          FB_TOKEN_API_KEY: ${{ secrets.FB_TOKEN_API_KEY }}
           FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}
           FB_APP_ID: ${{ secrets.FB_APP_ID }}
           FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
@@ -41,6 +43,8 @@ jobs:
       - name: Rodar otimizacao diaria de orcamento
         env:
           FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_TOKEN_ENDPOINT_URL: ${{ secrets.FB_TOKEN_ENDPOINT_URL }}
+          FB_TOKEN_API_KEY: ${{ secrets.FB_TOKEN_API_KEY }}
           FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}
           FB_APP_ID: ${{ secrets.FB_APP_ID }}
           FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}

@@ -231,10 +231,18 @@ def test_trigger_suggest_audience_rejects_wrong_trigger_key():
 
 def test_trigger_suggest_audience_rejects_missing_budget():
     headers = {"Authorization": "Bearer chavetrigger"}
-    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json={}, headers=headers):
+    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json={"leilao": "Leilão 1"}, headers=headers):
         response = main.trigger_suggest_audience(request)
     assert response.status_code == 400
     assert "orçamento" in response.get_data(as_text=True)
+
+
+def test_trigger_suggest_audience_rejects_missing_leilao():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json={"budget": "50"}, headers=headers):
+        response = main.trigger_suggest_audience(request)
+    assert response.status_code == 400
+    assert "leilão" in response.get_data(as_text=True)
 
 
 @patch("main.requests.post")
@@ -242,8 +250,9 @@ def test_trigger_suggest_audience_dispatches_workflow_with_correct_inputs(mock_p
     mock_post.return_value = _mock_github_response(204)
     headers = {"Authorization": "Bearer chavetrigger"}
     body = {
-        "budget": "80", "url": "https://exemplo.com/leilao/123",
-        "category": "Imóveis", "create_campaign": True,
+        "budget": "80", "leilao": "Leilão 15498 - Imóveis Setembro",
+        "url": "https://exemplo.com/leilao/123", "category": "Imóveis",
+        "picture_url": "https://exemplo.com/foto.jpg",
     }
     with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json=body, headers=headers):
         response = main.trigger_suggest_audience(request)
@@ -257,27 +266,30 @@ def test_trigger_suggest_audience_dispatches_workflow_with_correct_inputs(mock_p
     sent_json = call.kwargs["json"]
     assert sent_json["ref"] == main.GITHUB_REF
     assert sent_json["inputs"]["budget"] == "80"
+    assert sent_json["inputs"]["leilao"] == "Leilão 15498 - Imóveis Setembro"
     assert sent_json["inputs"]["url"] == "https://exemplo.com/leilao/123"
     assert sent_json["inputs"]["category"] == "Imóveis"
-    assert sent_json["inputs"]["create_campaign"] == "true"
+    assert sent_json["inputs"]["picture_url"] == "https://exemplo.com/foto.jpg"
 
 
 @patch("main.requests.post")
-def test_trigger_suggest_audience_defaults_create_campaign_to_false(mock_post):
+def test_trigger_suggest_audience_omits_blank_optional_fields(mock_post):
     mock_post.return_value = _mock_github_response(204)
     headers = {"Authorization": "Bearer chavetrigger"}
-    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json={"budget": "50"}, headers=headers):
+    body = {"budget": "50", "leilao": "Leilão 1"}
+    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json=body, headers=headers):
         main.trigger_suggest_audience(request)
     sent_json = mock_post.call_args.kwargs["json"]
-    assert sent_json["inputs"]["create_campaign"] == "false"
     assert "url" not in sent_json["inputs"]
+    assert "picture_url" not in sent_json["inputs"]
 
 
 @patch("main.requests.post")
 def test_trigger_suggest_audience_returns_502_when_github_rejects(mock_post):
     mock_post.return_value = _mock_github_response(422, "Validation failed")
     headers = {"Authorization": "Bearer chavetrigger"}
-    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json={"budget": "50"}, headers=headers):
+    body = {"budget": "50", "leilao": "Leilão 1"}
+    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json=body, headers=headers):
         response = main.trigger_suggest_audience(request)
     assert response.status_code == 502
     assert "422" in response.get_data(as_text=True)
@@ -288,6 +300,74 @@ def test_trigger_suggest_audience_returns_502_on_network_error(mock_post):
     import requests as requests_module
     mock_post.side_effect = requests_module.ConnectionError("timeout")
     headers = {"Authorization": "Bearer chavetrigger"}
-    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json={"budget": "50"}, headers=headers):
+    body = {"budget": "50", "leilao": "Leilão 1"}
+    with app.test_request_context(f"{BASE}/trigger_suggest_audience", method="POST", json=body, headers=headers):
         response = main.trigger_suggest_audience(request)
+    assert response.status_code == 502
+
+
+def test_trigger_approve_draft_rejects_missing_authorization_header():
+    body = {"draft_id": "abc", "action": "approve"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body):
+        response = main.trigger_approve_draft(request)
+    assert response.status_code == 401
+
+
+def test_trigger_approve_draft_rejects_wrong_trigger_key():
+    headers = {"Authorization": "Bearer chave-errada"}
+    body = {"draft_id": "abc", "action": "approve"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+    assert response.status_code == 401
+
+
+def test_trigger_approve_draft_rejects_missing_draft_id():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"action": "approve"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+    assert response.status_code == 400
+
+
+def test_trigger_approve_draft_rejects_invalid_action():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc", "action": "delete"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+    assert response.status_code == 400
+
+
+@patch("main.requests.post")
+def test_trigger_approve_draft_dispatches_approve_workflow(mock_post):
+    mock_post.return_value = _mock_github_response(204)
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc123", "action": "approve"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+
+    assert response.status_code == 200
+    call = mock_post.call_args
+    assert call.args[0] == f"{main.GITHUB_API_BASE}/actions/workflows/approve-draft.yml/dispatches"
+    sent_json = call.kwargs["json"]
+    assert sent_json["inputs"] == {"draft_id": "abc123", "action": "approve"}
+
+
+@patch("main.requests.post")
+def test_trigger_approve_draft_dispatches_reject_workflow(mock_post):
+    mock_post.return_value = _mock_github_response(204)
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc123", "action": "reject"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        main.trigger_approve_draft(request)
+    sent_json = mock_post.call_args.kwargs["json"]
+    assert sent_json["inputs"]["action"] == "reject"
+
+
+@patch("main.requests.post")
+def test_trigger_approve_draft_returns_502_when_github_rejects(mock_post):
+    mock_post.return_value = _mock_github_response(422, "Validation failed")
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc123", "action": "approve"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
     assert response.status_code == 502

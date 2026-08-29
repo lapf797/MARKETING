@@ -16,6 +16,9 @@ funções:
                                precisar sair do dashboard (protegido por uma chave própria,
                                separada da do login — vazamento dela não expõe o token do
                                Facebook)
+- trigger_approve_draft     : aprova ou rejeita um rascunho de anúncio direto do dashboard,
+                               disparando o workflow "Aprovar rascunho" — fecha o ciclo
+                               revisar → aprovar sem precisar do GitHub em nenhum passo
 
 O token do Facebook nunca é exposto ao navegador nem ao dashboard — só fica no Firestore,
 lido e escrito sempre pelo lado do servidor (Admin SDK). Ver docs/SETUP_FIREBASE_OAUTH.md
@@ -258,42 +261,24 @@ def refresh_token(event: scheduler_fn.ScheduledEvent) -> None:
     _store_token(payload["access_token"], expires_in=payload.get("expires_in", 5_184_000))
 
 
-@https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
-                      cors=CorsOptions(cors_origins="*", cors_methods=["POST"]))
-def trigger_suggest_audience(req: https_fn.Request) -> https_fn.Response:
-    """Recebe o formulário da aba Configurações do dashboard e dispara o workflow
-    "Sugerir publico-alvo" (suggest-audience.yml) no GitHub Actions em nome do usuário —
-    equivalente a clicar "Run workflow" na aba Actions, só que sem sair do dashboard."""
+def _check_bearer(req: https_fn.Request, expected: str) -> bool:
     auth_header = req.headers.get("Authorization", "")
-    if not auth_header.startswith("Bearer ") or not hmac.compare_digest(
-        auth_header.removeprefix("Bearer "), DASHBOARD_TRIGGER_KEY.value
-    ):
-        return https_fn.Response('{"error":"não autorizado"}', status=401,
-                                  headers={"Content-Type": "application/json"})
+    return auth_header.startswith("Bearer ") and hmac.compare_digest(
+        auth_header.removeprefix("Bearer "), expected
+    )
 
-    body = req.get_json(silent=True) or {}
-    budget = str(body.get("budget") or "").strip()
-    if not budget:
-        return https_fn.Response('{"error":"orçamento diário é obrigatório"}', status=400,
-                                  headers={"Content-Type": "application/json"})
 
-    workflow_inputs = {
-        "budget": budget,
-        "create_campaign": "true" if body.get("create_campaign") else "false",
-    }
-    for field in ("url", "category", "description", "location", "value"):
-        value = str(body.get(field) or "").strip()
-        if value:
-            workflow_inputs[field] = value
-
+def _dispatch_workflow(workflow_file: str, inputs: dict) -> https_fn.Response:
+    """Dispara um workflow_dispatch no GitHub Actions em nome do usuário — usada tanto por
+    trigger_suggest_audience quanto por trigger_approve_draft, só muda o arquivo e os inputs."""
     try:
         response = requests.post(
-            f"{GITHUB_API_BASE}/actions/workflows/suggest-audience.yml/dispatches",
+            f"{GITHUB_API_BASE}/actions/workflows/{workflow_file}/dispatches",
             headers={
                 "Authorization": f"Bearer {GITHUB_PAT.value}",
                 "Accept": "application/vnd.github+json",
             },
-            json={"ref": GITHUB_REF, "inputs": workflow_inputs},
+            json={"ref": GITHUB_REF, "inputs": inputs},
             timeout=15,
         )
     except requests.RequestException as exc:
@@ -308,3 +293,58 @@ def trigger_suggest_audience(req: https_fn.Request) -> https_fn.Response:
 
     return https_fn.Response(json.dumps({"ok": True}), status=200,
                               headers={"Content-Type": "application/json"})
+
+
+@https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
+                      cors=CorsOptions(cors_origins="*", cors_methods=["POST"]))
+def trigger_suggest_audience(req: https_fn.Request) -> https_fn.Response:
+    """Recebe o formulário do card "Sugerir público-alvo" do dashboard e dispara o workflow
+    "Sugerir publico-alvo" (suggest-audience.yml) no GitHub Actions em nome do usuário —
+    equivalente a clicar "Run workflow" na aba Actions, só que sem sair do dashboard. O
+    workflow sempre gera um RASCUNHO para revisão (nunca cria campanha ao vivo direto) —
+    ver scripts/suggest_audience.py."""
+    if not _check_bearer(req, DASHBOARD_TRIGGER_KEY.value):
+        return https_fn.Response('{"error":"não autorizado"}', status=401,
+                                  headers={"Content-Type": "application/json"})
+
+    body = req.get_json(silent=True) or {}
+    budget = str(body.get("budget") or "").strip()
+    if not budget:
+        return https_fn.Response('{"error":"orçamento diário é obrigatório"}', status=400,
+                                  headers={"Content-Type": "application/json"})
+    leilao = str(body.get("leilao") or "").strip()
+    if not leilao:
+        return https_fn.Response('{"error":"nome do leilão é obrigatório"}', status=400,
+                                  headers={"Content-Type": "application/json"})
+
+    workflow_inputs = {"budget": budget, "leilao": leilao}
+    for field in ("url", "category", "description", "location", "value", "picture_url", "link_url"):
+        value = str(body.get(field) or "").strip()
+        if value:
+            workflow_inputs[field] = value
+
+    return _dispatch_workflow("suggest-audience.yml", workflow_inputs)
+
+
+@https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
+                      cors=CorsOptions(cors_origins="*", cors_methods=["POST"]))
+def trigger_approve_draft(req: https_fn.Request) -> https_fn.Response:
+    """Aprova ou rejeita um rascunho de anúncio direto do card "Rascunhos de anúncios" do
+    dashboard, disparando o workflow "Aprovar rascunho" (approve-draft.yml) — que roda
+    scripts/create_campaigns_from_drafts.py --draft-id <id> --confirm (aprovar) ou --reject
+    (rejeitar). Só aprovar de fato escreve algo real no Facebook Ads."""
+    if not _check_bearer(req, DASHBOARD_TRIGGER_KEY.value):
+        return https_fn.Response('{"error":"não autorizado"}', status=401,
+                                  headers={"Content-Type": "application/json"})
+
+    body = req.get_json(silent=True) or {}
+    draft_id = str(body.get("draft_id") or "").strip()
+    if not draft_id:
+        return https_fn.Response('{"error":"draft_id é obrigatório"}', status=400,
+                                  headers={"Content-Type": "application/json"})
+    action = str(body.get("action") or "").strip()
+    if action not in ("approve", "reject"):
+        return https_fn.Response('{"error":"action deve ser \\"approve\\" ou \\"reject\\""}', status=400,
+                                  headers={"Content-Type": "application/json"})
+
+    return _dispatch_workflow("approve-draft.yml", {"draft_id": draft_id, "action": action})

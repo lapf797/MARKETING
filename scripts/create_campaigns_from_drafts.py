@@ -53,8 +53,13 @@ def _create_one(fb_client: FacebookAdsClient, draft: dict, *, config: AppConfig)
     if missing:
         raise ValueError(f"faltam campos obrigatórios no rascunho: {', '.join(missing)}")
 
-    days = days_until(draft.get("pause_date"))
-    daily_budget_cents = max(1, round(draft["total_budget_cents"] / days))
+    if draft.get("daily_budget_cents"):
+        # Rascunho do fluxo avulso (scripts/suggest_audience.py): o usuário já informou um
+        # orçamento diário fixo, não um total a diluir até a data do leilão.
+        daily_budget_cents = draft["daily_budget_cents"]
+    else:
+        days = days_until(draft.get("pause_date"))
+        daily_budget_cents = max(1, round(draft["total_budget_cents"] / days))
 
     campaign = fb_client.create_campaign(
         name=draft["campaign_name"], objective="OUTCOME_TRAFFIC", status=default_status,

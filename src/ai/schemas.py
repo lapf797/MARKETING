@@ -87,6 +87,16 @@ class PropertyAdListing(BaseModel):
     confidence: float = Field(ge=0.0, le=1.0)
 
 
+class SingleAdCopy(BaseModel):
+    """Copy de anúncio para um único ativo avulso (scripts/suggest_audience.py) — mesma
+    função da copy já embutida em PropertyAdListing, mas gerada isoladamente porque o
+    fluxo avulso não passa pelo catálogo em PDF."""
+    headline: str = Field(description="Manchete do anúncio, até 40 caracteres, gancho específico deste ativo.")
+    primary_text: str = Field(description="Texto principal do anúncio, até 125 caracteres.")
+    ad_description: str = Field(description="Descrição do anúncio (link description), até 200 caracteres.")
+    confidence: float = Field(ge=0.0, le=1.0)
+
+
 class CatalogAnalysis(BaseModel):
     total_properties: int
     summary: str

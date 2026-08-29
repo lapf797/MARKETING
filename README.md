@@ -212,18 +212,26 @@ scripts/run_daily_optimization.py
 Separadamente, `scripts/suggest_audience.py` é usado sob demanda sempre que você tem um
 **novo ativo avulso** para anunciar (fora de um catálogo em PDF — para catálogos, use
 "Criar anúncios a partir do catálogo do leilão" acima). O jeito mais rápido é passar o link
-da página do lote:
+da página do lote e um nome de leilão (agrupa este lote com os demais do mesmo envio no
+dashboard):
 
 ```bash
-python scripts/suggest_audience.py --url "https://milanleiloes.com.br/leilao/imoveis/15498" --budget 100
+python scripts/suggest_audience.py --url "https://milanleiloes.com.br/leilao/imoveis/15498" \
+  --leilao "Leilão 15498 - Imóveis Setembro" --budget 100
 ```
 
 A IA lê a página sozinha (usa a ferramenta de busca na web da própria Claude, que roda nos
 servidores da Anthropic — não depende de nada instalado localmente), extrai categoria,
 descrição, localização e valor do lote, mostra tudo no terminal para você conferir, gera a
-recomendação de público, registra tudo (dashboard + Power BI) e cria um rascunho de campanha
-**pausada** no Facebook Ads para sua revisão antes de ativar. Se a extração falhar ou vier
-incompleta (site fora do ar, layout incomum, exige login), complete manualmente com
+recomendação de público e a copy do anúncio, registra tudo (dashboard + Power BI) e salva um
+**rascunho** — o mesmo sistema de revisão usado pelo catálogo em PDF (ver seção anterior);
+nada é criado no Facebook nesta etapa. Passe `--picture-url` com a foto do lote para o
+rascunho já sair com a pré-visualização do criativo pronta (a mesma composição final que vai
+pro Facebook quando aprovado). Revise a recomendação, a copy e a pré-visualização no
+dashboard (card "Rascunhos de anúncios") e aprove por lá, ou com
+`scripts/create_campaigns_from_drafts.py --draft-id <id> --confirm`, para criar a campanha
+**pausada** de verdade. Se a extração da página falhar ou vier incompleta (site fora do ar,
+layout incomum, exige login), complete manualmente com
 `--category`/`--description`/`--location`/`--value` — essas flags também servem para
 *corrigir* um campo específico que a IA leu errado, mesmo usando `--url`. Sem link, dá para
 usar só as flags manuais, como antes.
@@ -238,15 +246,19 @@ credenciais que você já tem (Facebook + Anthropic).
 1. No repositório no GitHub, vá em **Settings → Secrets and variables → Actions → New
    repository secret** e cadastre, um de cada vez: `FB_ACCESS_TOKEN`, `FB_AD_ACCOUNT_ID`,
    `FB_APP_ID`, `FB_APP_SECRET`, `ANTHROPIC_API_KEY`.
-2. Vá na aba **Actions** do repositório. Na lista à esquerda, escolha um dos dois workflows:
-   - **"Sugerir publico-alvo (sob demanda)"** — para testar com o link de um leilão real.
+2. Vá na aba **Actions** do repositório. Na lista à esquerda, escolha um dos workflows:
+   - **"Sugerir publico-alvo (sob demanda)"** — para testar com o link de um leilão real
+     (gera um rascunho para revisão, não toca no Facebook ainda).
+   - **"Aprovar rascunho (sob demanda)"** — aprova (`action: approve`) ou rejeita
+     (`action: reject`) um rascunho pelo `draft_id` (aparece no log do passo anterior, ou no
+     dashboard) — só aprovar cria a campanha pausada de verdade no Facebook.
    - **"Otimizacao diaria de campanhas (Facebook Ads)"** — para testar a análise e otimização
      das campanhas já ativas na sua conta (sempre em modo simulação por enquanto, já que
      `safety.dry_run` começa `true`).
 3. Clique em **Run workflow**. No campo **Use workflow from**, troque para o branch
    `claude/facebook-ads-marketing-system-66a3tq` (o workflow ainda não está no branch
-   principal). Preencha os campos do formulário (ex: o link do leilão e o orçamento) e
-   clique em **Run workflow** de novo para confirmar.
+   principal). Preencha os campos do formulário (ex: o link do leilão, o nome do leilão e o
+   orçamento) e clique em **Run workflow** de novo para confirmar.
 4. Acompanhe a execução clicando nela na lista — o log mostra tudo: o que a IA extraiu da
    página, o que ela recomendou, e (no caso da otimização diária) o que as guardrails
    aprovaram ou bloquearam.
@@ -273,12 +285,14 @@ scripts/preview_ad_creative.py      # gera uma prévia local do criativo, sem us
 scripts/sync_custom_audience.py     # CSV de contatos -> público personalizado + semelhante (lookalike)
 scripts/optimize_placements.py      # roda todo dia — posicionamento/demografia, nunca orçamento
 scripts/run_daily_optimization.py   # roda todo dia via GitHub Actions — orçamento
-scripts/suggest_audience.py         # roda sob demanda para um ativo avulso (CLI local)
+scripts/suggest_audience.py         # roda sob demanda para um ativo avulso (CLI local) — gera rascunho, não cria campanha
 scripts/run_suggest_audience_from_env.py  # mesma coisa, via variáveis de ambiente (GitHub Actions)
 scripts/setup_powerbi_dataset.py    # roda uma única vez, na configuração inicial
 scripts/rollback.py                 # reverte manualmente a última ação em um alvo
+src/ai/ad_copywriter.py             # copy do anúncio (headline/texto/descrição) para o fluxo avulso
 .github/workflows/daily-optimization.yml   # agenda a execução diária (posicionamento + orçamento)
 .github/workflows/suggest-audience.yml     # dispara scripts/suggest_audience.py pela interface do GitHub
+.github/workflows/approve-draft.yml        # aprova/rejeita um rascunho (dashboard ou GitHub Actions)
 .github/workflows/ci.yml                   # roda os testes em cada PR
 .github/workflows/deploy-firebase.yml      # publica o login com Facebook (Firebase) sob demanda
 docs/index.html                 # dashboard web (publicável via GitHub Pages)
@@ -414,8 +428,20 @@ Cloud Functions fica salvo só no navegador (`localStorage`); nenhum token passa
 dashboard em nenhum momento.
 
 O card **"Sugerir público-alvo"** dispara o workflow correspondente do GitHub Actions
-direto do dashboard (cola o link do leilão e o orçamento, sem abrir o GitHub) — exige uma
-configuração opcional à parte (`docs/SETUP_FIREBASE_OAUTH.md`, seção 11).
+direto do dashboard (cola o link do leilão, o nome do leilão e o orçamento, sem abrir o
+GitHub) — exige uma configuração opcional à parte (`docs/SETUP_FIREBASE_OAUTH.md`, seção
+11). Ele nunca cria nada no Facebook diretamente: gera um **rascunho** para revisão.
+
+O card **"Rascunhos de anúncios"** é onde a revisão acontece — mostra, por rascunho
+pendente (do catálogo em PDF ou do card acima): a tag do leilão, a pré-visualização do
+criativo (quando já tem foto), a manchete/copy do anúncio, e a recomendação de público
+(idade, gênero, interesses, o raciocínio da IA). Um filtro **"Leilão"** deixa ver só os
+rascunhos/campanhas de um leilão específico, acompanhando leilão a leilão como as
+campanhas estão indo. Cada rascunho pronto (sem campos faltando) tem botões **"Aprovar e
+criar campanha"** e **"Rejeitar"** — aprovar dispara `create_campaigns_from_drafts.py
+--confirm` no GitHub Actions e cria a campanha **pausada** de verdade no Facebook; rejeitar
+descarta sem tocar no Facebook. Usa a mesma chave de disparo do card "Sugerir
+público-alvo".
 
 ## Sistema de segurança (guardrails)
 
@@ -451,13 +477,15 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
 
 ## Limitações conhecidas
 
-- **A imagem final é composta automaticamente, mas a foto crua ainda é anexada à mão.**
-  O sistema não extrai a foto do ativo do PDF sozinho — cada rascunho ainda precisa de uma
-  `picture_url` (uma URL pública de imagem) anexada manualmente antes de aprovar
-  (`create_campaigns_from_drafts.py --draft-id <id> --picture-url ...`). A IA aponta em
-  `photo_page_reference` onde a foto certa está no PDF, para facilitar localizá-la. A
-  partir daí, a composição (realce, marca, título, selos) é 100% automática — ver "Geração
-  automática da imagem do anúncio".
+- **A imagem final é composta automaticamente, mas a foto crua ainda é informada à mão.**
+  O sistema não extrai a foto do ativo do PDF/página sozinho. No fluxo de catálogo, cada
+  rascunho precisa de uma `picture_url` (URL pública de imagem) anexada antes de aprovar
+  (`create_campaigns_from_drafts.py --draft-id <id> --picture-url ...`) — a IA aponta em
+  `photo_page_reference` onde a foto certa está no PDF, para facilitar localizá-la. No
+  fluxo avulso (`suggest_audience.py`/card "Sugerir público-alvo"), basta informar
+  `--picture-url` (ou o campo "URL da foto do lote") já na criação — o rascunho sai com a
+  pré-visualização pronta. A partir da foto, a composição (realce, marca, título, selos) é
+  100% automática — ver "Geração automática da imagem do anúncio".
 - **Sem uma logo real configurada, o criativo usa um selo de texto.** O sistema nunca
   inventa uma marca gráfica; até você apontar `creative.logo_path` para um arquivo real
   (`config/settings.yaml`), o topo do criativo mostra o nome da marca em texto. A
@@ -465,12 +493,6 @@ Isso reverte a campanha/adset para o valor anterior registrado na trilha de audi
   desenvolvimento não tinha uma foto real de imóvel nem a logo da Milan Leilões à mão) —
   vale gerar uma prévia (`scripts/preview_ad_creative.py`) com uma foto e a logo reais
   antes de aprovar o primeiro rascunho de verdade.
-- `scripts/suggest_audience.py` (o fluxo avulso, sem catálogo) cria campanha e adset com
-  segmentação já resolvida em IDs reais da Meta, mas **não cria o criativo/anúncio** — só
-  o fluxo de catálogo (`analyze_catalog.py` + `create_campaigns_from_drafts.py`) vai até o
-  anúncio completo, pronto para veicular. Isso é intencional: criar um anúncio pronto para
-  veicular sem revisão humana explícita é um risco desnecessário fora do fluxo com
-  aprovação por rascunho.
 - O otimizador diário só age sobre campanhas/adsets já ativos com histórico — campanhas
   novíssimas (sem gasto) não sofrem ação até acumularem dados mínimos.
 - Se a campanha usa **Orçamento de Campanha Otimizado (CBO)**, o orçamento é controlado no
@@ -497,12 +519,12 @@ travar o uso do que já existe, mas valem uma rodada dedicada quando fizer senti
   composição da imagem final (realce, marca, selos, data — ver "Geração automática da
   imagem do anúncio" acima) já é automática; falta só a etapa anterior, hoje manual: cada
   rascunho ainda depende de uma `picture_url` anexada com `--picture-url`.
-- Workflow do GitHub Actions (`workflow_dispatch`) para `analyze_catalog.py`,
-  `create_campaigns_from_drafts.py` e `sync_custom_audience.py`, nos moldes de
-  `suggest-audience.yml` — hoje os três só rodam localmente (o PDF do catálogo e o CSV de
-  contatos precisariam estar hospedados numa URL, já que formulários do GitHub Actions não
-  aceitam upload de arquivo). `optimize_placements.py` já roda automaticamente todo dia,
-  sem precisar disso.
+- `create_campaigns_from_drafts.py` já tem workflow (`approve-draft.yml`, aprovando/
+  rejeitando um rascunho por vez, disparável pelo dashboard). Faltam `analyze_catalog.py` e
+  `sync_custom_audience.py`, nos mesmos moldes — hoje os dois só rodam localmente (o PDF do
+  catálogo e o CSV de contatos precisariam estar hospedados numa URL, já que formulários do
+  GitHub Actions não aceitam upload de arquivo). `optimize_placements.py` já roda
+  automaticamente todo dia, sem precisar disso.
 - Criar relatórios/dashboards no Power BI em cima das tabelas `CampaignPerformance`,
   `OptimizerActions` e `AudienceRecommendations`.
 - Considerar alertas (e-mail/Slack) quando a IA sinalizar `flag_for_audience_refresh` ou

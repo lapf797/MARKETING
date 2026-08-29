@@ -6,7 +6,7 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from src.safety.draft_log import append_drafts, get_draft, read_drafts, update_draft
+from src.safety.draft_log import append_drafts, get_draft, read_drafts, update_draft, write_dashboard_snapshot
 
 
 def test_append_and_read_by_status(tmp_path):
@@ -81,3 +81,23 @@ def test_filter_by_batch_id(tmp_path):
 def test_read_drafts_on_missing_file_returns_empty(tmp_path):
     path = tmp_path / "does_not_exist.json"
     assert read_drafts(path=path) == []
+
+
+def test_dashboard_snapshot_includes_leilao_and_preview_image(tmp_path):
+    source_path = tmp_path / "ad_drafts.json"
+    out_path = tmp_path / "drafts_data.json"
+    append_drafts([{
+        "batch_id": "b1", "leilao": "Leilão 15498 - Imóveis Setembro",
+        "preview_image_url": "./creative_previews/abc.jpg",
+        "account_id": "act_1", "page_id": "p1", "link_url": "https://x", "picture_url": "https://x/foto.jpg",
+        "property": {"title": "Casa A", "headline": "Casa A"},
+    }], path=source_path)
+
+    write_dashboard_snapshot(source_path=source_path, out_path=out_path)
+
+    import json
+    snapshot = json.loads(out_path.read_text(encoding="utf-8"))
+    [pending] = snapshot["pending"]
+    assert pending["leilao"] == "Leilão 15498 - Imóveis Setembro"
+    assert pending["preview_image_url"] == "./creative_previews/abc.jpg"
+    assert pending["missing_fields"] == []

@@ -38,7 +38,11 @@ def main() -> None:
             location=_env("INPUT_LOCATION"),
             value=_env_float("INPUT_VALUE"),
             budget=budget,
-            no_create=(_env("INPUT_CREATE_CAMPAIGN") or "false").lower() != "true",
+            leilao=_env("INPUT_LEILAO"),
+            picture_url=_env("INPUT_PICTURE_URL"),
+            link_url=_env("INPUT_LINK_URL"),
+            account_id=_env("INPUT_ACCOUNT_ID"),
+            page_id=_env("INPUT_PAGE_ID") or _env("FB_PAGE_ID"),
         )
     except SuggestionError as exc:
         print(f"ERRO: {exc}")

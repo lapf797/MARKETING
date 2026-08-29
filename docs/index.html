@@ -305,6 +305,18 @@
   .rec-card .rec-source a { font-size: 12px; font-weight: 600; text-decoration: none; }
   .rec-card .rec-source a:hover { text-decoration: underline; }
 
+  .rec-card .leilao-tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--text-secondary); background: var(--border); border-radius: 999px; padding: 2px 9px; margin-bottom: 8px; }
+  .rec-card .draft-preview { width: 100%; border-radius: 6px; margin-bottom: 8px; display: block; border: 1px solid var(--border); }
+  .rec-card .draft-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .btn-sm { padding: 5px 10px; font-size: 12px; }
+  .btn-danger { background: transparent; color: var(--warning); border-color: var(--warning); }
+  .btn-danger:hover { opacity: 0.85; }
+  .draft-action-status { font-size: 11px; color: var(--text-muted); }
+
+  .filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
+  .filter-row label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
+  .filter-row select.config-input { width: auto; min-width: 220px; }
+
   .empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 
   .btn-primary, .btn-secondary {
@@ -414,7 +426,7 @@
 
   <section class="card" id="suggest-card">
     <h2>Sugerir público-alvo</h2>
-    <p class="card-sub">Cole o link de um leilão e dispare a análise da IA — sem precisar abrir o GitHub.</p>
+    <p class="card-sub">Cole o link de um lote do leilão e a IA gera a recomendação de público e um rascunho de anúncio para você revisar — nada vai pro Facebook ainda. Aprove depois, no card "Rascunhos de anúncios" abaixo.</p>
 
     <div id="suggest-key-setup" style="display:none;margin-bottom:14px;">
       <label for="trigger-key-input" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
@@ -429,11 +441,27 @@
     <form id="suggest-form" style="display:none;">
       <div style="display:grid;gap:12px;grid-template-columns:1fr;">
         <div>
+          <label for="suggest-leilao" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+            Nome do leilão *
+          </label>
+          <input id="suggest-leilao" class="config-input" type="text" style="width:100%;" required
+                 placeholder='ex: "Leilão 15498 - Imóveis Setembro" — agrupa este e os outros lotes do mesmo envio' />
+        </div>
+
+        <div>
           <label for="suggest-url" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
             Link do leilão
           </label>
           <input id="suggest-url" class="config-input" type="text" style="width:100%;"
                  placeholder="https://exemplo.com/leilao/imoveis/12345" />
+        </div>
+
+        <div>
+          <label for="suggest-picture-url" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+            URL da foto do lote (opcional — gera a pré-visualização do anúncio)
+          </label>
+          <input id="suggest-picture-url" class="config-input" type="text" style="width:100%;"
+                 placeholder="https://exemplo.com/fotos/lote123.jpg" />
         </div>
 
         <details id="suggest-manual">
@@ -448,22 +476,16 @@
           </div>
         </details>
 
-        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
-          <div>
-            <label for="suggest-budget" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
-              Orçamento diário máximo *
-            </label>
-            <input id="suggest-budget" class="config-input" type="text" placeholder="ex: 80" required />
-          </div>
-          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);padding-bottom:8px;">
-            <input id="suggest-create-campaign" type="checkbox" />
-            Criar campanha pausada automaticamente
+        <div>
+          <label for="suggest-budget" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+            Orçamento diário máximo *
           </label>
+          <input id="suggest-budget" class="config-input" type="text" placeholder="ex: 80" required />
         </div>
       </div>
 
       <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
-        <button id="suggest-submit-btn" class="btn-primary" type="submit">Disparar</button>
+        <button id="suggest-submit-btn" class="btn-primary" type="submit">Gerar rascunho</button>
         <button id="change-trigger-key-btn" class="btn-secondary" type="button">Trocar chave</button>
         <span id="suggest-status-text" style="font-size:12px;color:var(--text-muted);"></span>
       </div>
@@ -534,15 +556,22 @@
   </section>
 
   <section class="card">
-    <h2>Rascunhos de anúncios (catálogo do leilão)</h2>
+    <h2>Rascunhos de anúncios</h2>
     <p class="card-sub">
-      Gerados por <code>scripts/analyze_catalog.py</code> a partir de um PDF do leilão —
-      aguardando revisão antes de virar campanha real. Aprove com
-      <code>scripts/create_campaigns_from_drafts.py --confirm</code>.
+      Gerados pelo card "Sugerir público-alvo" acima ou por <code>scripts/analyze_catalog.py</code>
+      a partir de um PDF do leilão — revise a recomendação e a pré-visualização e aprove ou
+      rejeite direto aqui, sem sair do dashboard.
     </p>
+    <div class="filter-row">
+      <label for="leilao-filter">Leilão:</label>
+      <select id="leilao-filter" class="config-input">
+        <option value="">Todos os leilões</option>
+      </select>
+    </div>
     <div id="drafts-grid" class="rec-grid"></div>
     <div id="drafts-empty" class="empty" style="display:none;">Nenhum rascunho pendente no momento.</div>
     <div id="drafts-created" class="feed" style="margin-top:14px;"></div>
+    <div id="drafts-errors" class="feed" style="margin-top:14px;"></div>
   </section>
 
   <section class="card">
@@ -668,7 +697,9 @@
     recEmpty: document.getElementById("rec-empty"),
     draftsGrid: document.getElementById("drafts-grid"),
     draftsEmpty: document.getElementById("drafts-empty"),
-    draftsCreated: document.getElementById("drafts-created")
+    draftsCreated: document.getElementById("drafts-created"),
+    draftsErrors: document.getElementById("drafts-errors"),
+    leilaoFilter: document.getElementById("leilao-filter")
   };
 
   function esc(str) {
@@ -948,46 +979,153 @@
   }
 
   var SAMPLE_DRAFTS = {
-    pending_count: 2,
+    pending_count: 3,
     pending: [
-      { draft_id: "a1b2c3d4", title: "Apartamento 2 quartos, Moema", category: "Imóveis", city: "São Paulo", state: "SP",
-        headline: "Apto 2 dorms em Moema", total_budget_cents: 200000, pause_date: "2026-10-15",
+      { draft_id: "a1b2c3d4", leilao: "Leilão 15498 - Imóveis Setembro", title: "Apartamento 2 quartos, Moema",
+        category: "Imóveis", city: "São Paulo", state: "SP", headline: "Apto 2 dorms em Moema",
+        primary_text: "Preço abaixo do mercado, parcelamento facilitado.",
+        ad_description: "Apartamento pronto para morar em Moema — condições especiais de leilão.",
+        age_min: 30, age_max: 55, gender_targeting: "all", interests: ["Real estate", "Investimento imobiliário"],
+        audience_reasoning: "Região concentra famílias e investidores de renda média-alta buscando moradia.",
+        total_budget_cents: 200000, pause_date: "2026-10-15", preview_image_url: null,
         missing_fields: ["picture_url"] },
-      { draft_id: "e5f6a7b8", title: "Terreno 500m², Jundiaí", category: "Imóveis", city: "Jundiaí", state: "SP",
-        headline: "Terreno 500m² em Jundiaí", total_budget_cents: 75000, pause_date: "2026-10-15",
-        missing_fields: ["account_id", "page_id", "picture_url"] }
+      { draft_id: "e5f6a7b8", leilao: "Leilão 15498 - Imóveis Setembro", title: "Terreno 500m², Jundiaí",
+        category: "Imóveis", city: "Jundiaí", state: "SP", headline: "Terreno 500m² em Jundiaí",
+        total_budget_cents: 75000, pause_date: "2026-10-15",
+        missing_fields: ["account_id", "page_id", "picture_url"] },
+      { draft_id: "f1a2b3c4", leilao: "Lote avulso - Caminhão VW", title: "Caminhão VW 24.250, ano 2019",
+        category: "Veículos", city: "Campinas, SP", headline: "Caminhão VW 2019 em Campinas",
+        primary_text: "Lance mínimo abaixo da tabela FIPE.", ad_description: "Caminhão revisado, documentação em dia.",
+        age_min: 28, age_max: 60, gender_targeting: "male", interests: ["Transporte de carga", "Empreendedorismo"],
+        audience_reasoning: "Perfil de frotistas e transportadores autônomos da região.",
+        daily_budget_cents: 8000, missing_fields: [] }
     ],
     recent_created: [
-      { draft_id: "9c8d7e6f", title: "Casa 3 quartos, Campinas", meta_campaign_id: "120210000000001",
-        updated_at: new Date(Date.now() - 20 * 3600e3).toISOString() }
+      { draft_id: "9c8d7e6f", leilao: "Leilão 15498 - Imóveis Setembro", title: "Casa 3 quartos, Campinas",
+        meta_campaign_id: "120210000000001", updated_at: new Date(Date.now() - 20 * 3600e3).toISOString() }
     ],
     recent_errors: []
   };
 
+  var lastDraftsData = null;
+  var DRAFTS_URL_KEY = "marketing_functions_base_url";
+  var DRAFTS_TRIGGER_KEY = "marketing_trigger_key";
+
+  function draftsReadBaseUrl() {
+    try { return (localStorage.getItem(DRAFTS_URL_KEY) || "").replace(/\/+$/, ""); } catch (e) { return ""; }
+  }
+  function draftsReadTriggerKey() {
+    try { return localStorage.getItem(DRAFTS_TRIGGER_KEY) || ""; } catch (e) { return ""; }
+  }
+
+  function draftBudgetLabel(d) {
+    if (d.daily_budget_cents) return fmtMoney(d.daily_budget_cents / 100) + "/dia";
+    return fmtMoney((d.total_budget_cents || 0) / 100) + " total";
+  }
+
+  function draftAction(draftId, action, statusEl, buttons) {
+    var baseUrl = draftsReadBaseUrl();
+    var key = draftsReadTriggerKey();
+    if (!baseUrl) {
+      statusEl.textContent = "Configure o endereço das Cloud Functions na aba Configurações primeiro.";
+      return;
+    }
+    if (!key) {
+      statusEl.textContent = 'Configure a chave de disparo no card "Sugerir público-alvo" primeiro.';
+      return;
+    }
+    buttons.forEach(function (b) { b.disabled = true; });
+    statusEl.textContent = action === "approve" ? "Aprovando…" : "Rejeitando…";
+    fetch(baseUrl + "/trigger_approve_draft", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
+      body: JSON.stringify({ draft_id: draftId, action: action })
+    })
+      .then(function (resp) {
+        return resp.json().catch(function () { return {}; }).then(function (data) { return { ok: resp.ok, data: data }; });
+      })
+      .then(function (result) {
+        if (result.ok) {
+          statusEl.textContent = action === "approve"
+            ? "Disparado! A campanha pausada aparece aqui como “Criada” quando o GitHub Actions terminar."
+            : "Disparado! Este rascunho será marcado como rejeitado quando o GitHub Actions terminar.";
+        } else {
+          buttons.forEach(function (b) { b.disabled = false; });
+          statusEl.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
+        }
+      })
+      .catch(function () {
+        buttons.forEach(function (b) { b.disabled = false; });
+        statusEl.textContent = "Não consegui contatar o servidor — confira o endereço das Cloud Functions na aba Configurações.";
+      });
+  }
+
+  function populateLeilaoFilter(data) {
+    var names = [];
+    (data.pending || []).concat(data.recent_created || [], data.recent_errors || []).forEach(function (d) {
+      if (d.leilao && names.indexOf(d.leilao) === -1) names.push(d.leilao);
+    });
+    var current = els.leilaoFilter.value;
+    els.leilaoFilter.innerHTML = '<option value="">Todos os leilões</option>' +
+      names.map(function (n) { return '<option value="' + esc(n) + '">' + esc(n) + '</option>'; }).join("");
+    if (names.indexOf(current) !== -1) els.leilaoFilter.value = current;
+  }
+
   function renderDrafts(data) {
-    var pending = data.pending || [];
+    lastDraftsData = data;
+    populateLeilaoFilter(data);
+    var filterValue = els.leilaoFilter.value;
+    var matchesFilter = function (d) { return !filterValue || d.leilao === filterValue; };
+
+    var pending = (data.pending || []).filter(matchesFilter);
     els.draftsGrid.innerHTML = "";
     els.draftsEmpty.style.display = pending.length ? "none" : "block";
     pending.forEach(function (d) {
       var div = document.createElement("div");
       div.className = "rec-card";
       var missing = d.missing_fields || [];
+      var interests = Array.isArray(d.interests) ? d.interests.join(", ") : "";
+      var genderLabel = { male: "Masculino", female: "Feminino", all: "Todos" }[d.gender_targeting] || "";
+      var audienceLine = (d.age_min && d.age_max)
+        ? "Público sugerido: " + esc(d.age_min) + "–" + esc(d.age_max) + " anos, " + esc(genderLabel) +
+          (interests ? " · " + esc(interests) : "")
+        : "";
       div.innerHTML =
+        (d.leilao ? '<span class="leilao-tag">' + esc(d.leilao) + '</span>' : "") +
+        (d.preview_image_url ? '<img class="draft-preview" src="' + esc(d.preview_image_url) + '" alt="Pré-visualização do anúncio" loading="lazy" />' : "") +
         '<div class="cat">' + esc(d.category || "") + '</div>' +
         '<h3>' + esc(d.title || "—") + '</h3>' +
         '<div class="facts">' +
         '<span>' + esc(d.city || "—") + (d.state ? "/" + esc(d.state) : "") + '</span>' +
-        '<span>Orçamento <b>' + esc(fmtMoney((d.total_budget_cents || 0) / 100)) + '</b></span>' +
+        '<span>Orçamento <b>' + esc(draftBudgetLabel(d)) + '</b></span>' +
         '<span>Pausa em <b>' + esc(d.pause_date ? fmtDateShort(d.pause_date) : "—") + '</b></span>' +
         '</div>' +
-        '<div class="reasoning">Manchete: “' + esc(d.headline || "") + '”</div>' +
+        '<div class="reasoning">Manchete: “' + esc(d.headline || "") + '”' +
+        (d.primary_text ? '<br>' + esc(d.primary_text) : "") + '</div>' +
+        (audienceLine ? '<div class="reasoning" style="margin-top:6px;">' + audienceLine +
+          (d.audience_reasoning ? '<br>' + esc(d.audience_reasoning) : "") + '</div>' : "") +
         (missing.length
           ? '<div class="rec-source"><span class="chip rejected"><span class="dot"></span>faltam: ' + esc(missing.join(", ")) + '</span></div>'
-          : '<div class="rec-source"><span class="chip applied"><span class="dot"></span>pronto para aprovar</span></div>');
+          : '<div class="rec-source"><span class="chip applied"><span class="dot"></span>pronto para aprovar</span></div>') +
+        '<div class="draft-actions">' +
+        (missing.length ? "" : '<button type="button" class="btn-primary btn-sm" data-approve="' + esc(d.draft_id) + '">Aprovar e criar campanha</button>') +
+        '<button type="button" class="btn-danger btn-sm" data-reject="' + esc(d.draft_id) + '">Rejeitar</button>' +
+        '<span class="draft-action-status"></span>' +
+        '</div>';
       els.draftsGrid.appendChild(div);
+
+      var statusEl = div.querySelector(".draft-action-status");
+      var approveBtn = div.querySelector("[data-approve]");
+      var rejectBtn = div.querySelector("[data-reject]");
+      var relevantButtons = [rejectBtn].concat(approveBtn ? [approveBtn] : []);
+      if (approveBtn) approveBtn.addEventListener("click", function () { draftAction(d.draft_id, "approve", statusEl, relevantButtons); });
+      rejectBtn.addEventListener("click", function () {
+        if (!window.confirm("Rejeitar este rascunho? Não é possível desfazer.")) return;
+        draftAction(d.draft_id, "reject", statusEl, relevantButtons);
+      });
     });
 
-    var created = data.recent_created || [];
+    var created = (data.recent_created || []).filter(matchesFilter);
     els.draftsCreated.innerHTML = created.length
       ? '<p class="card-sub" style="margin:0 0 8px;">Criadas recentemente</p>' : "";
     created.forEach(function (c) {
@@ -996,11 +1134,30 @@
       item.innerHTML =
         '<div class="row1"><span class="action-label">' + esc(c.title || "—") + '</span>' +
         '<span class="chip applied"><span class="dot"></span>Criada</span></div>' +
-        '<div class="target">Campanha ' + esc(c.meta_campaign_id || "—") + '</div>' +
+        '<div class="target">' + (c.leilao ? esc(c.leilao) + ' · ' : "") + 'Campanha ' + esc(c.meta_campaign_id || "—") + '</div>' +
         '<div class="foot"><span>' + esc(fmtDateTime(c.updated_at)) + '</span></div>';
       els.draftsCreated.appendChild(item);
     });
+
+    var errors = (data.recent_errors || []).filter(matchesFilter);
+    els.draftsErrors.innerHTML = errors.length
+      ? '<p class="card-sub" style="margin:0 0 8px;">Erros recentes</p>' : "";
+    errors.forEach(function (e) {
+      var item = document.createElement("div");
+      item.className = "feed-item";
+      item.innerHTML =
+        '<div class="row1"><span class="action-label">' + esc(e.title || "—") + '</span>' +
+        '<span class="chip rejected"><span class="dot"></span>Erro</span></div>' +
+        '<div class="target">' + (e.leilao ? esc(e.leilao) : "") + '</div>' +
+        '<div class="rejection">' + esc(e.error_message || "") + '</div>' +
+        '<div class="foot"><span>' + esc(fmtDateTime(e.updated_at)) + '</span></div>';
+      els.draftsErrors.appendChild(item);
+    });
   }
+
+  els.leilaoFilter.addEventListener("change", function () {
+    if (lastDraftsData) renderDrafts(lastDraftsData);
+  });
 
   fetch("./dashboard_data.json", { cache: "no-store" })
     .then(function (resp) { if (!resp.ok) throw new Error("no data yet"); return resp.json(); })
@@ -1177,11 +1334,17 @@
       statusText.textContent = "Preencha o orçamento diário.";
       return;
     }
+    var leilao = document.getElementById("suggest-leilao").value.trim();
+    if (!leilao) {
+      statusText.textContent = "Preencha o nome do leilão.";
+      return;
+    }
 
     var payload = {
       budget: budget,
-      create_campaign: document.getElementById("suggest-create-campaign").checked,
+      leilao: leilao,
       url: document.getElementById("suggest-url").value.trim(),
+      picture_url: document.getElementById("suggest-picture-url").value.trim(),
       category: document.getElementById("suggest-category").value.trim(),
       location: document.getElementById("suggest-location").value.trim(),
       value: document.getElementById("suggest-value").value.trim(),
@@ -1207,7 +1370,7 @@
       .then(function (result) {
         submitBtn.disabled = false;
         if (result.ok) {
-          statusText.textContent = "Disparado! Acompanhe na aba Actions do GitHub — os resultados aparecem aqui no dashboard depois de terminar.";
+          statusText.textContent = "Disparado! O rascunho aparece no card \"Rascunhos de anúncios\" assim que o GitHub Actions terminar (1-2 minutos).";
         } else {
           statusText.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
         }

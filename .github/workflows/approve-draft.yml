@@ -1,0 +1,58 @@
+name: Aprovar rascunho (sob demanda)
+
+on:
+  workflow_dispatch:
+    inputs:
+      draft_id:
+        description: "ID do rascunho (logs/ad_drafts.json)"
+        required: true
+      action:
+        description: "Aprovar (cria a campanha PAUSADA de verdade) ou rejeitar"
+        required: true
+        type: choice
+        options: ["approve", "reject"]
+
+permissions:
+  contents: write
+
+jobs:
+  approve:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Configurar Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Instalar dependencias
+        run: pip install -r requirements.txt
+
+      - name: Rejeitar rascunho
+        if: ${{ inputs.action == 'reject' }}
+        run: python scripts/create_campaigns_from_drafts.py --draft-id "${{ inputs.draft_id }}" --reject
+
+      - name: Aprovar rascunho (cria a campanha PAUSADA no Facebook Ads)
+        if: ${{ inputs.action == 'approve' }}
+        env:
+          FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_TOKEN_ENDPOINT_URL: ${{ secrets.FB_TOKEN_ENDPOINT_URL }}
+          FB_TOKEN_API_KEY: ${{ secrets.FB_TOKEN_API_KEY }}
+          FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}
+          FB_APP_ID: ${{ secrets.FB_APP_ID }}
+          FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
+          # load_config() exige ANTHROPIC_API_KEY mesmo aqui, onde nenhuma chamada de IA
+          # acontece de fato — create_campaigns_from_drafts.py só cria o que já está no
+          # rascunho, mas carrega a config inteira (AppConfig) pra isso.
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+        run: python scripts/create_campaigns_from_drafts.py --draft-id "${{ inputs.draft_id }}" --confirm
+
+      - name: Commit dos dados do dashboard
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add logs/ad_drafts.json docs/drafts_data.json
+          git diff --cached --quiet || git commit -m "chore: rascunho de anuncio ${{ inputs.action == 'approve' && 'aprovado' || 'rejeitado' }} (${{ inputs.draft_id }})"
+          git push

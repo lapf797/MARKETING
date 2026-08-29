@@ -154,11 +154,12 @@ próprio sistema renova o acesso sozinho, uma vez por semana, sem você precisar
 aqui — a única exceção é se você revogar o acesso manualmente lá no Facebook, caso em que
 basta clicar em "Conectar com Facebook" de novo.
 
-## 11. (Opcional) Disparar "Sugerir público-alvo" direto do dashboard
+## 11. (Opcional) Disparar "Sugerir público-alvo" e aprovar rascunhos direto do dashboard
 
-Por padrão, rodar esse workflow ainda exige ir na aba Actions do GitHub. Dá pra fazer
-isso direto do dashboard (card "Sugerir público-alvo") — exige mais dois secrets, uma
-vez só:
+Por padrão, rodar os workflows "Sugerir público-alvo" e "Aprovar rascunho" ainda exige ir
+na aba Actions do GitHub. Dá pra fazer isso direto do dashboard (cards "Sugerir
+público-alvo" e "Rascunhos de anúncios") — exige mais dois secrets, uma vez só. Os dois
+cards usam a mesma chave, então essa configuração habilita os dois de uma vez:
 
 1. **Gerar um token do GitHub**: em
    [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
@@ -184,9 +185,15 @@ vez só:
    (Firebase)" → Run workflow**).
 5. No dashboard, card **"Sugerir público-alvo"**, cole a chave do passo 3 → Salvar.
 
-Pronto — o card passa a mostrar o formulário. Cole o link do leilão (ou preencha na mão),
-o orçamento diário, e clique **Disparar**. Acompanhe o progresso na aba Actions do GitHub
-como de costume; os resultados aparecem no dashboard depois que o workflow terminar.
+Pronto — o card passa a mostrar o formulário. Preencha o **nome do leilão** (obrigatório —
+agrupa este lote com os demais do mesmo envio no card "Rascunhos de anúncios"), cole o
+link do leilão (ou preencha na aba manual), opcionalmente a **URL da foto do lote** (gera
+a pré-visualização do anúncio) e o orçamento diário, e clique **Gerar rascunho**. Depois
+de 1-2 minutos (tempo do GitHub Actions rodar), o rascunho aparece no card "Rascunhos de
+anúncios" — nada foi criado no Facebook ainda. Revise a recomendação de público, a copy e
+a pré-visualização; se estiver tudo certo, clique **"Aprovar e criar campanha"** (cria a
+campanha **pausada** de verdade no Facebook Ads) ou **"Rejeitar"** — os mesmos dois
+botões usam a chave configurada no passo 5.
 
 ---
 
@@ -205,3 +212,13 @@ como de costume; os resultados aparecem no dashboard depois que o workflow termi
 - **"o GitHub recusou o disparo"**: o `GITHUB_PAT` expirou, foi revogado, ou não tem
   permissão de "Actions: write" no repositório — gere um novo token (passo 11.1) e
   regrave o secret.
+- **Botão "Aprovar"/"Rejeitar" no card "Rascunhos de anúncios" dá "Configure o endereço
+  das Cloud Functions..."**: mesma configuração da aba Configurações (passo 8) — os
+  botões usam o mesmo endereço salvo lá.
+- **Botão "Aprovar"/"Rejeitar" dá "Configure a chave de disparo..."**: falta fazer o passo
+  11.5 (colar a chave no card "Sugerir público-alvo") — é a mesma chave usada pelos dois
+  cards.
+- **Cliquei "Aprovar" mas o rascunho nunca vira "Criada"**: confira a execução do workflow
+  "Aprovar rascunho" na aba Actions do GitHub — se falhou, o log mostra o motivo (ex:
+  `account_id`/`page_id`/`picture_url` faltando, ou a Meta recusou algum campo); o rascunho
+  aparece em "Erros recentes" no dashboard com a mensagem.

@@ -33,6 +33,9 @@ def main() -> None:
         description="Extrai todos os ativos de um catálogo de leilão em PDF e gera rascunhos de anúncio."
     )
     parser.add_argument("--pdf", required=True, help="Caminho local do PDF, ou uma URL http(s) para baixá-lo")
+    parser.add_argument("--leilao", default=None,
+                         help='Nome do leilão (ex: "Leilão 15498 - Imóveis Setembro") — agrupa todos os lotes '
+                              "deste envio no dashboard. Se não informado, usa o número do lote (batch_id).")
     parser.add_argument("--link-url", default=None, help="URL de destino (landing page) que os anúncios vão usar")
     parser.add_argument("--account-id", default=None, help="ID da conta de anúncios Meta (pode ser definido depois, na aprovação)")
     parser.add_argument("--page-id", default=None, help="ID da página do Facebook (pode ser definido depois, na aprovação)")
@@ -53,6 +56,7 @@ def main() -> None:
         return
 
     batch_id = str(int(time.time()))
+    leilao = args.leilao or f"Leilão {batch_id}"
     entries = []
     for prop in analysis.properties:
         total_budget_cents = suggested_total_budget_cents(
@@ -61,6 +65,7 @@ def main() -> None:
         )
         entries.append({
             "batch_id": batch_id,
+            "leilao": leilao,
             "link_url": args.link_url,
             "account_id": args.account_id,
             "page_id": args.page_id,

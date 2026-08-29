@@ -1,26 +1,36 @@
-"""Pede à IA uma recomendação de público-alvo para um novo ativo de leilão.
+"""Pede à IA uma recomendação de público-alvo para um novo ativo de leilão e monta um
+rascunho de anúncio pronto para revisão — o mesmo sistema de rascunhos usado pelo catálogo
+em PDF (src/safety/draft_log.py). Nunca cria nada ao vivo no Facebook diretamente: a
+criação real da campanha só acontece depois de aprovado, via
+scripts/create_campaigns_from_drafts.py --confirm (ou pelo botão "Aprovar" no dashboard).
 
 Modo recomendado — a partir do link do leilão, a IA lê a página e extrai os dados sozinha:
-    python scripts/suggest_audience.py --url "https://milanleiloes.com.br/leilao/imoveis/15498" --budget 100
+    python scripts/suggest_audience.py --url "https://milanleiloes.com.br/leilao/imoveis/15498" \\
+        --leilao "Leilão 15498 - Imóveis Setembro" --budget 100
 
 Modo manual — quando não há link, ou para complementar/corrigir o que foi extraído:
     python scripts/suggest_audience.py --category "Imoveis" \\
         --description "Apartamento 3 quartos, Zona Sul, 90m2" \\
-        --location "Sao Paulo, SP" --value 450000 --budget 100
+        --location "Sao Paulo, SP" --value 450000 --leilao "Leilão 15498" --budget 100
 
 Os dois podem ser combinados: --url extrai os dados automaticamente, e qualquer uma das
 outras flags (--category/--description/--location/--value) informada junto SOBRESCREVE
 o valor extraído só naquele campo específico.
 
-Por padrão, cria uma campanha e um adset PAUSADOS no Facebook Ads com o público sugerido,
-para você revisar e ativar manualmente. Use --no-create para apenas ver a recomendação sem
-tocar no Facebook.
+--leilao agrupa este e os demais lotes do mesmo envio no dashboard ("por leilão") — use o
+mesmo nome para lotes do mesmo leilão. --picture-url é opcional mas recomendada: com ela, o
+rascunho já sai com a pré-visualização do criativo pronta (foto + marca + selos), a mesma
+composição final que vai pro Facebook quando aprovado.
 
-Também pode ser disparado sem instalar nada localmente, direto pela aba Actions do GitHub
+Use --no-create para só ver a recomendação e a copy, sem salvar rascunho nenhum.
+
+Também pode ser disparado sem instalar nada localmente, direto pelo dashboard (card
+"Sugerir público-alvo") ou pela aba Actions do GitHub
 (.github/workflows/suggest-audience.yml, que chama run_suggestion() abaixo)."""
 from __future__ import annotations
 
 import argparse
+import re
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
@@ -29,17 +39,18 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 import anthropic
 
+from src.ai.ad_copywriter import write_single_ad_copy
 from src.ai.audience_advisor import recommend_audience
 from src.ai.listing_extractor import extract_listing
 from src.config import load_config
+from src.creative.pipeline import generate_ad_image_bytes
 from src.facebook_ads.client import FacebookAdsClient
-from src.facebook_ads.targeting import resolve_geo_locations_free_text, resolve_interests
-from src.safety.audience_registry import get_latest_lookalike
 from src.facebook_ads.insights import fetch_audience_breakdown
 from src.reporting.powerbi_push import PowerBIClient
+from src.safety.draft_log import append_drafts, update_draft, write_dashboard_snapshot
 from src.safety.recommendation_log import log_recommendation
 
-_GENDER_CODES = {"male": [1], "female": [2], "all": [1, 2]}
+PREVIEW_DIR = Path(__file__).resolve().parents[1] / "docs" / "creative_previews"
 
 
 class SuggestionError(ValueError):
@@ -62,7 +73,9 @@ def _print_listing(listing) -> None:
 
 def run_suggestion(*, url: str | None, category: str | None, description: str | None,
                     location: str | None, value: float | None, budget: float,
-                    no_create: bool) -> None:
+                    leilao: str | None = None, picture_url: str | None = None,
+                    link_url: str | None = None, account_id: str | None = None,
+                    page_id: str | None = None, no_create: bool = False) -> None:
     """Lógica completa do comando — usada tanto pelo CLI (main, abaixo) quanto pelo
     workflow do GitHub Actions (scripts/run_suggest_audience_from_env.py)."""
     if not url and not (category and description and location):
@@ -113,12 +126,13 @@ def run_suggestion(*, url: str | None, category: str | None, description: str | 
     print("\nBuscando histórico de performance por segmento...")
     history = fetch_audience_breakdown(fb_client, conversion_action_type=config.facebook.conversion_action_type)
 
+    daily_budget_cents = int(round(budget * config.safety.currency_minor_unit_factor))
+
     print("Consultando a IA para a recomendação de público...")
     recommendation = recommend_audience(
         ai_client, model=config.ai.model, effort=config.ai.audience_advisor_effort,
         asset_description=description, asset_category=category, asset_value=value,
-        target_location=location,
-        max_daily_budget_cents=int(round(budget * config.safety.currency_minor_unit_factor)),
+        target_location=location, max_daily_budget_cents=daily_budget_cents,
         historical_breakdown=history,
     )
 
@@ -159,48 +173,75 @@ def run_suggestion(*, url: str | None, category: str | None, description: str | 
     if no_create:
         return
 
-    print("\nResolvendo interesses e localização para os IDs reais da Meta...")
-    interests = resolve_interests(fb_client, recommendation.interests)
-    geo = resolve_geo_locations_free_text(fb_client, recommendation.geo_locations)
+    if not leilao:
+        raise SuggestionError(
+            "informe --leilao (nome do leilão) para salvar o rascunho — agrupa este lote "
+            "com os demais do mesmo envio no dashboard."
+        )
 
-    lookalike_id = None
-    if config.ads.use_lookalike_audience:
-        lookalike = get_latest_lookalike()
-        if lookalike:
-            lookalike_id = lookalike["lookalike_audience_id"]
+    print("\nGerando a copy do anúncio...")
+    copy = write_single_ad_copy(
+        ai_client, model=config.ai.model, effort=config.ai.audience_advisor_effort,
+        category=category, description=description, location=location, value=value,
+        key_details=listing.key_details if listing else None,
+    )
+    print(f"Manchete: {copy.headline}")
+    print(f"Texto principal: {copy.primary_text}")
+    print(f"Descrição: {copy.ad_description}")
 
-    print("Criando campanha e adset PAUSADOS no Facebook Ads para revisão...")
-    campaign = fb_client.create_campaign(
-        name=f"[IA] {category} - {description[:60]}",
-        objective="OUTCOME_TRAFFIC",
-        special_ad_categories=[],
-    )
-    targeting = {
-        "age_min": recommendation.age_min,
-        "age_max": recommendation.age_max,
-        "genders": _GENDER_CODES[recommendation.gender_targeting],
-        "geo_locations": geo,
-        "targeting_automation": {"advantage_audience": 0},
-    }
-    if interests:
-        targeting["flexible_spec"] = [{"interests": interests}]
-    if lookalike_id:
-        targeting["custom_audiences"] = [{"id": lookalike_id}]
-    adset = fb_client.create_adset(
-        campaign_id=campaign["id"], name=f"[IA] Publico sugerido - {description[:40]}",
-        daily_budget_cents=recommendation.suggested_daily_budget_cents,
-        targeting=targeting, optimization_goal="OFFSITE_CONVERSIONS", billing_event="IMPRESSIONS",
-    )
-    print(f"Campanha criada (PAUSADA): {campaign['id']}")
-    print(f"Adset criado (PAUSADO): {adset['id']}")
-    print(f"Interesses aplicados: {', '.join(i['name'] for i in interests) or 'nenhum encontrado'}")
-    print(f"Geolocalização aplicada: {geo}")
-    if lookalike_id:
-        print(f"Público semelhante aplicado: {lookalike_id}")
-    print("\nRevise a segmentação e o criativo no Gerenciador de Anúncios antes de ativar — "
-          "este script cria campanha e adset, mas ainda não o criativo/anúncio (foto e texto "
-          "finais). Para o fluxo completo com criativo pronto, veja "
-          "\"Criar anúncios a partir do catálogo do leilão\" no README.")
+    title = (listing.title if listing else None) or f"{category} - {location}"
+    pause_date = None
+    if listing and listing.auction_end_at and re.fullmatch(r"\d{4}-\d{2}-\d{2}", listing.auction_end_at):
+        pause_date = listing.auction_end_at
+
+    [draft] = append_drafts([{
+        "leilao": leilao,
+        "link_url": link_url or url,
+        "account_id": account_id or config.facebook.ad_account_id,
+        "page_id": page_id,
+        "picture_url": picture_url,
+        "campaign_name": f"[Leilão] {title}"[:100],
+        "daily_budget_cents": daily_budget_cents,
+        "pause_date": pause_date,
+        "property": {
+            "title": title,
+            "category": category,
+            "city": location,
+            "state": None,
+            "headline": copy.headline,
+            "primary_text": copy.primary_text,
+            "ad_description": copy.ad_description,
+            "age_min": recommendation.age_min,
+            "age_max": recommendation.age_max,
+            "gender_targeting": recommendation.gender_targeting,
+            "interests": recommendation.interests,
+            "audience_reasoning": recommendation.reasoning,
+            "geo_locations_suggested": recommendation.geo_locations,
+            "placements_suggested": recommendation.placements,
+            "confidence": min(recommendation.confidence, copy.confidence),
+        },
+    }])
+    print(f"\nRascunho salvo: {draft['draft_id']}")
+
+    if picture_url:
+        print("Gerando a pré-visualização do criativo...")
+        try:
+            image_bytes = generate_ad_image_bytes(
+                picture_url=picture_url, prop=draft["property"], pause_date=pause_date, config=config,
+            )
+            PREVIEW_DIR.mkdir(parents=True, exist_ok=True)
+            preview_path = PREVIEW_DIR / f"{draft['draft_id']}.jpg"
+            preview_path.write_bytes(image_bytes)
+            update_draft(draft["draft_id"], preview_image_url=f"./creative_previews/{draft['draft_id']}.jpg")
+            print(f"Pré-visualização salva em {preview_path}")
+        except Exception as exc:
+            print(f"Não foi possível gerar a pré-visualização do criativo: {exc}")
+
+    write_dashboard_snapshot()
+    print("\nRevise a recomendação e a pré-visualização no dashboard antes de aprovar. Ao "
+          "aprovar (botão no dashboard, ou "
+          f"scripts/create_campaigns_from_drafts.py --draft-id {draft['draft_id']} --confirm), "
+          "a campanha PAUSADA é criada de verdade no Facebook Ads para você ativar manualmente.")
 
 
 def main() -> None:
@@ -211,14 +252,23 @@ def main() -> None:
     parser.add_argument("--location", default=None, help='Ex: "Sao Paulo, SP" (sobrescreve o que veio de --url)')
     parser.add_argument("--value", type=float, default=None, help="Valor estimado do ativo (sobrescreve o que veio de --url)")
     parser.add_argument("--budget", type=float, required=True, help="Orçamento diário máximo (na moeda da conta)")
+    parser.add_argument("--leilao", default=None,
+                         help='Nome do leilão (ex: "Leilão 15498 - Imóveis Setembro") — agrupa este lote com os '
+                              "demais do mesmo envio no dashboard. Obrigatório, a menos que use --no-create.")
+    parser.add_argument("--picture-url", default=None,
+                         help="URL pública da foto do lote — com ela, o rascunho já sai com a pré-visualização do criativo pronta")
+    parser.add_argument("--link-url", default=None, help="URL de destino do anúncio (padrão: o mesmo valor de --url)")
+    parser.add_argument("--account-id", default=None, help="ID da conta de anúncios Meta (padrão: FB_AD_ACCOUNT_ID do .env)")
+    parser.add_argument("--page-id", default=None, help="ID da página do Facebook (pode ser definido depois, na aprovação)")
     parser.add_argument("--no-create", action="store_true",
-                         help="Apenas mostra a recomendação, sem criar campanha pausada no Facebook")
+                         help="Apenas mostra a recomendação e a copy, sem salvar rascunho nenhum")
     args = parser.parse_args()
 
     try:
         run_suggestion(url=args.url, category=args.category, description=args.description,
                         location=args.location, value=args.value, budget=args.budget,
-                        no_create=args.no_create)
+                        leilao=args.leilao, picture_url=args.picture_url, link_url=args.link_url,
+                        account_id=args.account_id, page_id=args.page_id, no_create=args.no_create)
     except SuggestionError as exc:
         parser.error(str(exc))
 

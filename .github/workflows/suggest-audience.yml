@@ -21,12 +21,21 @@ on:
       budget:
         description: "Orcamento diario maximo, na moeda da conta (obrigatorio, numero)"
         required: true
-      create_campaign:
-        description: "Criar campanha pausada no Facebook automaticamente?"
+      leilao:
+        description: "Nome do leilao (agrupa este lote com os demais do mesmo envio no dashboard)"
         required: true
-        default: "false"
-        type: choice
-        options: ["false", "true"]
+      picture_url:
+        description: "URL publica da foto do lote (opcional — gera a pre-visualizacao do criativo)"
+        required: false
+      link_url:
+        description: "URL de destino do anuncio (opcional — usa o link do leilao acima por padrao)"
+        required: false
+      account_id:
+        description: "ID da conta de anuncios Meta (opcional — usa FB_AD_ACCOUNT_ID por padrao)"
+        required: false
+      page_id:
+        description: "ID da pagina do Facebook (opcional — pode ser definido depois, na aprovacao)"
+        required: false
 
 permissions:
   contents: write
@@ -49,6 +58,8 @@ jobs:
       - name: Rodar recomendacao de publico
         env:
           FB_ACCESS_TOKEN: ${{ secrets.FB_ACCESS_TOKEN }}
+          FB_TOKEN_ENDPOINT_URL: ${{ secrets.FB_TOKEN_ENDPOINT_URL }}
+          FB_TOKEN_API_KEY: ${{ secrets.FB_TOKEN_API_KEY }}
           FB_AD_ACCOUNT_ID: ${{ secrets.FB_AD_ACCOUNT_ID }}
           FB_APP_ID: ${{ secrets.FB_APP_ID }}
           FB_APP_SECRET: ${{ secrets.FB_APP_SECRET }}
@@ -58,19 +69,25 @@ jobs:
           POWERBI_CLIENT_SECRET: ${{ secrets.POWERBI_CLIENT_SECRET }}
           POWERBI_WORKSPACE_ID: ${{ secrets.POWERBI_WORKSPACE_ID }}
           POWERBI_DATASET_ID: ${{ secrets.POWERBI_DATASET_ID }}
+          FB_PAGE_ID: ${{ secrets.FB_PAGE_ID }}
           INPUT_URL: ${{ inputs.url }}
           INPUT_CATEGORY: ${{ inputs.category }}
           INPUT_DESCRIPTION: ${{ inputs.description }}
           INPUT_LOCATION: ${{ inputs.location }}
           INPUT_VALUE: ${{ inputs.value }}
           INPUT_BUDGET: ${{ inputs.budget }}
-          INPUT_CREATE_CAMPAIGN: ${{ inputs.create_campaign }}
+          INPUT_LEILAO: ${{ inputs.leilao }}
+          INPUT_PICTURE_URL: ${{ inputs.picture_url }}
+          INPUT_LINK_URL: ${{ inputs.link_url }}
+          INPUT_ACCOUNT_ID: ${{ inputs.account_id }}
+          INPUT_PAGE_ID: ${{ inputs.page_id }}
         run: python scripts/run_suggest_audience_from_env.py
 
       - name: Commit dos dados do dashboard
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add logs/audience_recommendations.jsonl
-          git diff --cached --quiet || git commit -m "chore: nova recomendacao de publico-alvo (sob demanda)"
+          mkdir -p docs/creative_previews
+          git add logs/audience_recommendations.jsonl logs/ad_drafts.json docs/drafts_data.json docs/creative_previews/
+          git diff --cached --quiet || git commit -m "chore: novo rascunho de anuncio (sugestao de publico sob demanda)"
           git push

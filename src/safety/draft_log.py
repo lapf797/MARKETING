@@ -90,23 +90,34 @@ def write_dashboard_snapshot(*, source_path: Path = DEFAULT_PATH,
         prop = draft.get("property", {})
         pending.append({
             "draft_id": draft["draft_id"],
+            "leilao": draft.get("leilao"),
             "title": prop.get("title"),
             "category": prop.get("category"),
             "city": prop.get("city"),
             "state": prop.get("state"),
             "headline": prop.get("headline"),
+            "primary_text": prop.get("primary_text"),
+            "ad_description": prop.get("ad_description"),
+            "age_min": prop.get("age_min"),
+            "age_max": prop.get("age_max"),
+            "gender_targeting": prop.get("gender_targeting"),
+            "interests": prop.get("interests"),
+            "audience_reasoning": prop.get("audience_reasoning"),
             "total_budget_cents": draft.get("total_budget_cents"),
+            "daily_budget_cents": draft.get("daily_budget_cents"),
             "pause_date": draft.get("pause_date"),
+            "link_url": draft.get("link_url"),
+            "preview_image_url": draft.get("preview_image_url"),
             "missing_fields": _missing_fields(draft),
         })
 
     recent_created = [
-        {"draft_id": d["draft_id"], "title": d.get("property", {}).get("title"),
+        {"draft_id": d["draft_id"], "leilao": d.get("leilao"), "title": d.get("property", {}).get("title"),
          "meta_campaign_id": d.get("meta_campaign_id"), "updated_at": d.get("updated_at")}
         for d in drafts if d.get("status") == "criado"
     ]
     recent_errors = [
-        {"draft_id": d["draft_id"], "title": d.get("property", {}).get("title"),
+        {"draft_id": d["draft_id"], "leilao": d.get("leilao"), "title": d.get("property", {}).get("title"),
          "error_message": d.get("error_message"), "updated_at": d.get("updated_at")}
         for d in drafts if d.get("status") == "erro"
     ]
