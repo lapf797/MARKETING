@@ -154,6 +154,40 @@ próprio sistema renova o acesso sozinho, uma vez por semana, sem você precisar
 aqui — a única exceção é se você revogar o acesso manualmente lá no Facebook, caso em que
 basta clicar em "Conectar com Facebook" de novo.
 
+## 11. (Opcional) Disparar "Sugerir público-alvo" direto do dashboard
+
+Por padrão, rodar esse workflow ainda exige ir na aba Actions do GitHub. Dá pra fazer
+isso direto do dashboard (card "Sugerir público-alvo") — exige mais dois secrets, uma
+vez só:
+
+1. **Gerar um token do GitHub**: em
+   [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
+   → **Generate new token** → dê um nome (ex: "Disparo do dashboard") → em
+   **Repository access**, escolha **Only select repositories** → selecione o repositório
+   `MARKETING` → em **Permissions → Repository permissions**, procure **Actions** e mude
+   pra **Read and write** → **Generate token** → copie o token (começa com `github_pat_`
+   ou `ghp_`), só aparece uma vez.
+2. No Cloud Shell:
+   ```bash
+   firebase functions:secrets:set GITHUB_PAT --project cobrancas-whstapp
+   ```
+   Cole o token do passo 1.
+3. Invente outra chave (diferente da `TOKEN_API_KEY` do login) e configure:
+   ```bash
+   openssl rand -hex 32
+   firebase functions:secrets:set DASHBOARD_TRIGGER_KEY --project cobrancas-whstapp
+   ```
+   Cole o valor gerado. **Guarde esse valor** — é o que você cola no dashboard no
+   próximo passo.
+4. Se o CLI perguntar sobre reimplantar funções com a versão nova do secret, responda
+   `Y`. Senão, rode o deploy pelo GitHub (**Actions → "Deploy do login com Facebook
+   (Firebase)" → Run workflow**).
+5. No dashboard, card **"Sugerir público-alvo"**, cole a chave do passo 3 → Salvar.
+
+Pronto — o card passa a mostrar o formulário. Cole o link do leilão (ou preencha na mão),
+o orçamento diário, e clique **Disparar**. Acompanhe o progresso na aba Actions do GitHub
+como de costume; os resultados aparecem no dashboard depois que o workflow terminar.
+
 ---
 
 ## Se algo der errado
@@ -166,3 +200,8 @@ basta clicar em "Conectar com Facebook" de novo.
   está *exatamente* igual à do log do deploy (sem barra `/` sobrando no final).
 - **Dashboard mostra "não consegui confirmar o status"**: confira se colou o endereço
   *base* (sem `/connect_facebook` no final) na aba Configurações.
+- **"Sugerir público-alvo" no dashboard dá "não autorizado"**: a chave colada no card não
+  bate com `DASHBOARD_TRIGGER_KEY` — clique "Trocar chave" e cole de novo.
+- **"o GitHub recusou o disparo"**: o `GITHUB_PAT` expirou, foi revogado, ou não tem
+  permissão de "Actions: write" no repositório — gere um novo token (passo 11.1) e
+  regrave o secret.

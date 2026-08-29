@@ -412,6 +412,64 @@
     </div>
   </section>
 
+  <section class="card" id="suggest-card">
+    <h2>Sugerir público-alvo</h2>
+    <p class="card-sub">Cole o link de um leilão e dispare a análise da IA — sem precisar abrir o GitHub.</p>
+
+    <div id="suggest-key-setup" style="display:none;margin-bottom:14px;">
+      <label for="trigger-key-input" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+        Chave de disparo (cole uma vez só — está no guia de configuração, docs/SETUP_FIREBASE_OAUTH.md)
+      </label>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <input id="trigger-key-input" class="config-input" type="password" placeholder="Chave de disparo" />
+        <button id="save-trigger-key-btn" class="btn-primary" type="button">Salvar</button>
+      </div>
+    </div>
+
+    <form id="suggest-form" style="display:none;">
+      <div style="display:grid;gap:12px;grid-template-columns:1fr;">
+        <div>
+          <label for="suggest-url" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+            Link do leilão
+          </label>
+          <input id="suggest-url" class="config-input" type="text" style="width:100%;"
+                 placeholder="https://exemplo.com/leilao/imoveis/12345" />
+        </div>
+
+        <details id="suggest-manual">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text-secondary);">
+            Ou preencha manualmente (sem link, ou pra corrigir um campo)
+          </summary>
+          <div style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:10px;">
+            <input id="suggest-category" class="config-input" type="text" placeholder="Categoria (ex: Imóveis)" />
+            <input id="suggest-location" class="config-input" type="text" placeholder="Localização (ex: São Paulo, SP)" />
+            <input id="suggest-value" class="config-input" type="text" placeholder="Valor estimado do ativo" />
+            <input id="suggest-description" class="config-input" type="text" placeholder="Descrição do ativo" />
+          </div>
+        </details>
+
+        <div style="display:flex;gap:12px;align-items:flex-end;flex-wrap:wrap;">
+          <div>
+            <label for="suggest-budget" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+              Orçamento diário máximo *
+            </label>
+            <input id="suggest-budget" class="config-input" type="text" placeholder="ex: 80" required />
+          </div>
+          <label style="display:flex;align-items:center;gap:6px;font-size:13px;color:var(--text-secondary);padding-bottom:8px;">
+            <input id="suggest-create-campaign" type="checkbox" />
+            Criar campanha pausada automaticamente
+          </label>
+        </div>
+      </div>
+
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button id="suggest-submit-btn" class="btn-primary" type="submit">Disparar</button>
+        <button id="change-trigger-key-btn" class="btn-secondary" type="button">Trocar chave</button>
+        <span id="suggest-status-text" style="font-size:12px;color:var(--text-muted);"></span>
+      </div>
+    </form>
+  </section>
+
   <section class="kpi-grid">
     <div class="kpi">
       <p class="label">Gasto no período</p>
@@ -1043,6 +1101,121 @@
   changeBtn.addEventListener("click", function () {
     urlInput.value = readSavedUrl();
     showSetup();
+  });
+})();
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  // Formulário "Sugerir público-alvo": dispara o workflow do GitHub Actions direto do
+  // dashboard, chamando a Cloud Function trigger_suggest_audience (protegida por uma
+  // chave própria, guardada só neste navegador — separada da chave usada pelo login com
+  // Facebook, pra um vazamento aqui nunca expor o token do Facebook).
+  var FUNCTIONS_URL_KEY = "marketing_functions_base_url"; // mesma chave da aba Configurações
+  var TRIGGER_KEY_STORAGE = "marketing_trigger_key";
+
+  var keySetup = document.getElementById("suggest-key-setup");
+  var keyInput = document.getElementById("trigger-key-input");
+  var saveKeyBtn = document.getElementById("save-trigger-key-btn");
+  var form = document.getElementById("suggest-form");
+  var changeKeyBtn = document.getElementById("change-trigger-key-btn");
+  var statusText = document.getElementById("suggest-status-text");
+  var submitBtn = document.getElementById("suggest-submit-btn");
+
+  function readFunctionsBaseUrl() {
+    try { return (localStorage.getItem(FUNCTIONS_URL_KEY) || "").replace(/\/+$/, ""); } catch (e) { return ""; }
+  }
+  function readTriggerKey() {
+    try { return localStorage.getItem(TRIGGER_KEY_STORAGE) || ""; } catch (e) { return ""; }
+  }
+  function saveTriggerKey(value) {
+    try { localStorage.setItem(TRIGGER_KEY_STORAGE, value); } catch (e) { /* segue sem salvar */ }
+  }
+
+  function showKeySetup() {
+    form.style.display = "none";
+    keySetup.style.display = "block";
+  }
+  function showForm() {
+    keySetup.style.display = "none";
+    form.style.display = "block";
+  }
+
+  if (readTriggerKey()) {
+    showForm();
+  } else {
+    showKeySetup();
+  }
+
+  saveKeyBtn.addEventListener("click", function () {
+    var value = (keyInput.value || "").trim();
+    if (!value) {
+      statusText.textContent = "Cole a chave de disparo antes de salvar.";
+      return;
+    }
+    saveTriggerKey(value);
+    keyInput.value = "";
+    statusText.textContent = "";
+    showForm();
+  });
+
+  changeKeyBtn.addEventListener("click", function () {
+    showKeySetup();
+  });
+
+  form.addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    var baseUrl = readFunctionsBaseUrl();
+    if (!baseUrl) {
+      statusText.textContent = "Configure o endereço das Cloud Functions na aba Configurações primeiro.";
+      return;
+    }
+    var budget = document.getElementById("suggest-budget").value.trim();
+    if (!budget) {
+      statusText.textContent = "Preencha o orçamento diário.";
+      return;
+    }
+
+    var payload = {
+      budget: budget,
+      create_campaign: document.getElementById("suggest-create-campaign").checked,
+      url: document.getElementById("suggest-url").value.trim(),
+      category: document.getElementById("suggest-category").value.trim(),
+      location: document.getElementById("suggest-location").value.trim(),
+      value: document.getElementById("suggest-value").value.trim(),
+      description: document.getElementById("suggest-description").value.trim()
+    };
+
+    submitBtn.disabled = true;
+    statusText.textContent = "Disparando…";
+
+    fetch(baseUrl + "/trigger_suggest_audience", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + readTriggerKey()
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(function (resp) {
+        return resp.json().catch(function () { return {}; }).then(function (data) {
+          return { ok: resp.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        submitBtn.disabled = false;
+        if (result.ok) {
+          statusText.textContent = "Disparado! Acompanhe na aba Actions do GitHub — os resultados aparecem aqui no dashboard depois de terminar.";
+        } else {
+          statusText.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
+        }
+      })
+      .catch(function () {
+        submitBtn.disabled = false;
+        statusText.textContent = "Não consegui contatar o servidor — confira o endereço das Cloud Functions na aba Configurações.";
+      });
   });
 })();
 </script>

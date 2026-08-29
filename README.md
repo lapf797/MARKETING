@@ -413,6 +413,10 @@ precisar gerar token manualmente — ver `docs/SETUP_FIREBASE_OAUTH.md`). O ende
 Cloud Functions fica salvo só no navegador (`localStorage`); nenhum token passa pelo
 dashboard em nenhum momento.
 
+O card **"Sugerir público-alvo"** dispara o workflow correspondente do GitHub Actions
+direto do dashboard (cola o link do leilão e o orçamento, sem abrir o GitHub) — exige uma
+configuração opcional à parte (`docs/SETUP_FIREBASE_OAUTH.md`, seção 11).
+
 ## Sistema de segurança (guardrails)
 
 A IA **propõe**, mas nunca aplica nada diretamente — toda ação passa por

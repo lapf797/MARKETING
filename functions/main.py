@@ -1,21 +1,26 @@
-"""Login com Facebook para o sistema de marketing (substitui o token manual de "Usuário do
-Sistema" por um fluxo de "Conectar com Facebook" self-service, iniciado pela aba
-Configurações do dashboard). Cinco funções:
+"""Login com Facebook e disparo de workflows para o sistema de marketing — as duas coisas
+que a aba Configurações do dashboard usa para não depender da interface do GitHub. Seis
+funções:
 
-- connect_facebook   : redireciona pro diálogo OAuth da Meta
-- oauth_callback     : recebe o "code", troca por um token de longa duração (60 dias) e
-                        salva no Firestore
-- get_token          : endpoint que os workflows do GitHub Actions consultam pra pegar o
-                        token atual (protegido por uma chave compartilhada)
-- connection_status  : endpoint público (sem segredo nenhum, só um true/false) que o
-                        dashboard consulta pra mostrar "conectado" ou não
-- refresh_token      : roda toda semana sozinha, renova o token antes dele vencer — assim
-                        ele nunca expira de verdade, sem precisar logar de novo
+- connect_facebook          : redireciona pro diálogo OAuth da Meta
+- oauth_callback            : recebe o "code", troca por um token de longa duração (60
+                               dias) e salva no Firestore
+- get_token                 : endpoint que os workflows do GitHub Actions consultam pra
+                               pegar o token atual (protegido por uma chave compartilhada)
+- connection_status         : endpoint público (sem segredo nenhum, só um true/false) que
+                               o dashboard consulta pra mostrar "conectado" ou não
+- refresh_token             : roda toda semana sozinha, renova o token antes dele vencer —
+                               assim ele nunca expira de verdade, sem precisar logar de novo
+- trigger_suggest_audience  : recebe o formulário do dashboard e dispara o workflow
+                               "Sugerir publico-alvo" no GitHub Actions, sem o usuário
+                               precisar sair do dashboard (protegido por uma chave própria,
+                               separada da do login — vazamento dela não expõe o token do
+                               Facebook)
 
-O token nunca é exposto ao navegador nem ao dashboard — só fica no Firestore, lido e escrito
-sempre pelo lado do servidor (Admin SDK). Ver docs/SETUP_FIREBASE_OAUTH.md para a
-configuração inicial (é só isso que exige uma pessoa mexendo nas telas do Firebase/Meta uma
-única vez; depois disso é tudo automático)."""
+O token do Facebook nunca é exposto ao navegador nem ao dashboard — só fica no Firestore,
+lido e escrito sempre pelo lado do servidor (Admin SDK). Ver docs/SETUP_FIREBASE_OAUTH.md
+para a configuração inicial (é só isso que exige uma pessoa mexendo nas telas do
+Firebase/Meta/GitHub uma única vez; depois disso é tudo automático)."""
 from __future__ import annotations
 
 import hashlib
@@ -38,6 +43,14 @@ META_APP_ID = SecretParam("META_APP_ID")
 META_APP_SECRET = SecretParam("META_APP_SECRET")
 TOKEN_API_KEY = SecretParam("TOKEN_API_KEY")
 
+# Chave própria pra proteger trigger_suggest_audience — separada da TOKEN_API_KEY de
+# propósito: essa aqui só autoriza disparar um workflow no GitHub, nunca lê o token do
+# Facebook, então um eventual vazamento dela tem um alcance bem menor.
+DASHBOARD_TRIGGER_KEY = SecretParam("DASHBOARD_TRIGGER_KEY")
+# Personal Access Token do GitHub com permissão de "Actions: write" no repositório —
+# usado só pra chamar a API de workflow_dispatch. Ver docs/SETUP_FIREBASE_OAUTH.md.
+GITHUB_PAT = SecretParam("GITHUB_PAT")
+
 # Não é segredo (é só um identificador, como o próprio client_id) — por isso StringParam em
 # vez de SecretParam, e com default vazio pra não travar o deploy antes de existir uma
 # Configuração criada no App da Meta. Apps novos da Meta vêm só com "Login do Facebook para
@@ -51,6 +64,11 @@ OAUTH_SCOPES = "ads_management,ads_read,business_management,pages_show_list,page
 STATE_TTL_SECONDS = 600  # 10 minutos — tempo de sobra pra completar o login no Facebook
 TOKENS_COLLECTION = "tokens"
 TOKEN_DOC_ID = "facebook"
+
+GITHUB_OWNER = "lapf797"
+GITHUB_REPO = "MARKETING"
+GITHUB_REF = "claude/facebook-ads-marketing-system-66a3tq"
+GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
 
 
 def _sign_state(secret: str) -> str:
@@ -238,3 +256,55 @@ def refresh_token(event: scheduler_fn.ScheduledEvent) -> None:
         return
     payload = response.json()
     _store_token(payload["access_token"], expires_in=payload.get("expires_in", 5_184_000))
+
+
+@https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
+                      cors=CorsOptions(cors_origins="*", cors_methods=["POST"]))
+def trigger_suggest_audience(req: https_fn.Request) -> https_fn.Response:
+    """Recebe o formulário da aba Configurações do dashboard e dispara o workflow
+    "Sugerir publico-alvo" (suggest-audience.yml) no GitHub Actions em nome do usuário —
+    equivalente a clicar "Run workflow" na aba Actions, só que sem sair do dashboard."""
+    auth_header = req.headers.get("Authorization", "")
+    if not auth_header.startswith("Bearer ") or not hmac.compare_digest(
+        auth_header.removeprefix("Bearer "), DASHBOARD_TRIGGER_KEY.value
+    ):
+        return https_fn.Response('{"error":"não autorizado"}', status=401,
+                                  headers={"Content-Type": "application/json"})
+
+    body = req.get_json(silent=True) or {}
+    budget = str(body.get("budget") or "").strip()
+    if not budget:
+        return https_fn.Response('{"error":"orçamento diário é obrigatório"}', status=400,
+                                  headers={"Content-Type": "application/json"})
+
+    workflow_inputs = {
+        "budget": budget,
+        "create_campaign": "true" if body.get("create_campaign") else "false",
+    }
+    for field in ("url", "category", "description", "location", "value"):
+        value = str(body.get(field) or "").strip()
+        if value:
+            workflow_inputs[field] = value
+
+    try:
+        response = requests.post(
+            f"{GITHUB_API_BASE}/actions/workflows/suggest-audience.yml/dispatches",
+            headers={
+                "Authorization": f"Bearer {GITHUB_PAT.value}",
+                "Accept": "application/vnd.github+json",
+            },
+            json={"ref": GITHUB_REF, "inputs": workflow_inputs},
+            timeout=15,
+        )
+    except requests.RequestException as exc:
+        return https_fn.Response(json.dumps({"error": f"não foi possível contatar o GitHub: {exc}"}),
+                                  status=502, headers={"Content-Type": "application/json"})
+
+    if response.status_code != 204:
+        return https_fn.Response(
+            json.dumps({"error": f"o GitHub recusou o disparo (status {response.status_code}): {response.text}"}),
+            status=502, headers={"Content-Type": "application/json"},
+        )
+
+    return https_fn.Response(json.dumps({"ok": True}), status=200,
+                              headers={"Content-Type": "application/json"})
