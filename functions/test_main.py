@@ -63,6 +63,17 @@ def test_oauth_callback_url_derived_from_oauth_callback_request_itself():
         assert main._oauth_callback_url(request) == f"{BASE}/oauth_callback"
 
 
+def test_oauth_callback_url_ignores_path_stripped_by_cloud_functions_routing():
+    # Bug real encontrado em produção: o Cloud Functions usa o nome da função só pra
+    # rotear até o serviço certo — por dentro, o path já chega "consumido" (só "/"),
+    # mesmo quando a chamada pública foi para .../connect_facebook. A versão antiga desta
+    # função tentava deduzir o caminho olhando o path do request e sempre devolvia só o
+    # domínio (sem "/oauth_callback"), o que a Meta recusava por não bater com o
+    # redirect_uri cadastrado. A versão atual ignora o path e usa só o host.
+    with app.test_request_context(f"{BASE}/"):
+        assert main._oauth_callback_url(request) == f"{BASE}/oauth_callback"
+
+
 def test_oauth_callback_url_forces_https_even_if_request_reports_http():
     # Cloud Run/Functions termina o TLS num proxy antes da requisição chegar aqui — por
     # dentro, req.url às vezes aparece como "http://" mesmo a chamada pública sendo https.
@@ -70,7 +81,7 @@ def test_oauth_callback_url_forces_https_even_if_request_reports_http():
     http_base = BASE.replace("https://", "http://")
     with app.test_request_context(f"{http_base}/connect_facebook"):
         assert main._oauth_callback_url(request) == f"{BASE}/oauth_callback"
-    with app.test_request_context(f"{http_base}/oauth_callback?code=abc&state=xyz"):
+    with app.test_request_context(f"{http_base}/"):
         assert main._oauth_callback_url(request) == f"{BASE}/oauth_callback"
 
 

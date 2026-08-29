@@ -88,22 +88,18 @@ h1{{color:{color}}}</style></head>
 
 
 def _oauth_callback_url(req: https_fn.Request) -> str:
-    """URL do oauth_callback, deduzida a partir do request atual — não precisamos hardcodar
-    o domínio (que só existe depois do primeiro deploy). Funciona tanto chamada de dentro do
-    connect_facebook (deriva trocando o nome da função na URL) quanto de dentro do próprio
-    oauth_callback (a URL do request já É a certa).
-
-    O Cloud Run/Functions termina o HTTPS num proxy antes da requisição chegar aqui — por
-    dentro, req.url às vezes aparece como "http://" mesmo a chamada pública tendo sido
-    https. Forçamos "https://" sempre: os domínios *.cloudfunctions.net só são servidos por
-    HTTPS mesmo, então isso nunca está errado, e evita a Meta recusar o login por achar a
-    redirect_uri insegura."""
-    path_without_query = req.url.split("?", 1)[0]
-    if path_without_query.startswith("http://"):
-        path_without_query = "https://" + path_without_query[len("http://"):]
-    if path_without_query.endswith("/connect_facebook"):
-        return path_without_query.rsplit("/", 1)[0] + "/oauth_callback"
-    return path_without_query
+    """URL do oauth_callback, montada a partir do HOST do request atual — não dá pra
+    hardcodar o domínio (só existe depois do primeiro deploy), mas também não dá pra
+    deduzir pelo CAMINHO da requisição: o Cloud Functions usa o nome da função
+    (connect_facebook/oauth_callback) só para rotear até o serviço certo — por dentro, o
+    caminho que a função enxerga já chega "consumido" (só "/"), então tentar trocar o nome
+    da função no path (como esta função fazia antes) sempre produzia só o domínio, sem
+    "/oauth_callback" no final. Usamos só o host (que esse roteamento preserva) e montamos
+    o caminho certo à mão. Forçamos "https://" sempre — os domínios *.cloudfunctions.net só
+    são servidos por HTTPS mesmo, então isso nunca está errado, e evita a Meta recusar o
+    login por achar a redirect_uri insegura."""
+    host = urllib.parse.urlparse(req.url).netloc
+    return f"https://{host}/oauth_callback"
 
 
 @https_fn.on_request(secrets=[META_APP_ID])
