@@ -9,6 +9,9 @@ Uso:
     # Anexar a foto de um rascunho específico (obrigatório antes de aprovar):
     python scripts/create_campaigns_from_drafts.py --draft-id <id> --picture-url <url>
 
+    # Ajustar o orçamento diário de um rascunho específico:
+    python scripts/create_campaigns_from_drafts.py --draft-id <id> --budget 120
+
     # Criar todos os rascunhos pendentes ("rascunho") que já tenham foto/conta/página:
     python scripts/create_campaigns_from_drafts.py --confirm
 
@@ -154,6 +157,9 @@ def main() -> None:
                          help="Processa só este rascunho (por padrão, processa todos com status 'rascunho')")
     parser.add_argument("--picture-url", default=None,
                          help="Anexa esta URL de foto ao rascunho (precisa de --draft-id) e sai, sem criar nada")
+    parser.add_argument("--budget", type=float, default=None,
+                         help="Define o orçamento diário do rascunho, na moeda da conta (precisa de --draft-id) e sai, sem criar nada — "
+                              "sobrescreve o cálculo automático (total ÷ dias até o leilão) por um valor fixo por dia")
     parser.add_argument("--reject", action="store_true",
                          help="Marca o rascunho como rejeitado, sem criar nada no Facebook (precisa de --draft-id)")
     parser.add_argument("--confirm", action="store_true",
@@ -166,6 +172,17 @@ def main() -> None:
         update_draft(args.draft_id, picture_url=args.picture_url)
         write_dashboard_snapshot()
         print(f"Foto anexada ao rascunho {args.draft_id}.")
+        return
+
+    if args.budget is not None:
+        if not args.draft_id:
+            parser.error("--budget precisa de --draft-id")
+        if args.budget <= 0:
+            parser.error("--budget precisa ser maior que zero")
+        daily_budget_cents = round(args.budget * 100)
+        update_draft(args.draft_id, daily_budget_cents=daily_budget_cents)
+        write_dashboard_snapshot()
+        print(f"Orçamento do rascunho {args.draft_id} definido para R$ {args.budget:.2f}/dia.")
         return
 
     if args.reject:

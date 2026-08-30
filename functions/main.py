@@ -22,6 +22,9 @@ funções:
 - trigger_analyze_catalog   : recebe a URL do PDF do catálogo do leilão do dashboard e
                                dispara o workflow "Analisar catalogo do leilao" — gera de
                                uma vez o rascunho de todos os lotes do catálogo (até 60)
+- list_recent_runs          : lista as últimas execuções dos três workflows disparáveis
+                               pelo dashboard (status, conclusão, link do log) — pra nunca
+                               mais uma falha passar em silêncio sem o usuário saber
 
 O token do Facebook nunca é exposto ao navegador nem ao dashboard — só fica no Firestore,
 lido e escrito sempre pelo lado do servidor (Admin SDK). Ver docs/SETUP_FIREBASE_OAUTH.md
@@ -75,6 +78,11 @@ GITHUB_OWNER = "lapf797"
 GITHUB_REPO = "MARKETING"
 GITHUB_REF = "claude/facebook-ads-marketing-system-66a3tq"
 GITHUB_API_BASE = f"https://api.github.com/repos/{GITHUB_OWNER}/{GITHUB_REPO}"
+
+# Os três workflows disparáveis pelo dashboard — list_recent_runs mostra o histórico dos
+# três juntos, pra qualquer disparo (sugerir público, analisar catálogo, aprovar rascunho)
+# ficar visível mesmo se falhar antes de gerar qualquer rascunho.
+TRACKED_WORKFLOWS = ("suggest-audience.yml", "analyze-catalog.yml", "approve-draft.yml")
 
 
 def _sign_state(secret: str) -> str:
@@ -332,10 +340,11 @@ def trigger_suggest_audience(req: https_fn.Request) -> https_fn.Response:
 @https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
                       cors=CorsOptions(cors_origins="*", cors_methods=["POST"]))
 def trigger_approve_draft(req: https_fn.Request) -> https_fn.Response:
-    """Aprova ou rejeita um rascunho de anúncio direto do card "Rascunhos de anúncios" do
-    dashboard, disparando o workflow "Aprovar rascunho" (approve-draft.yml) — que roda
-    scripts/create_campaigns_from_drafts.py --draft-id <id> --confirm (aprovar) ou --reject
-    (rejeitar). Só aprovar de fato escreve algo real no Facebook Ads."""
+    """Aprova, rejeita ou ajusta o orçamento de um rascunho de anúncio direto do card
+    "Rascunhos de anúncios" do dashboard, disparando o workflow "Aprovar rascunho"
+    (approve-draft.yml) — que roda scripts/create_campaigns_from_drafts.py --draft-id <id>
+    --confirm (aprovar), --reject (rejeitar) ou --budget <valor> (ajustar orçamento). Só
+    aprovar de fato escreve algo real no Facebook Ads."""
     if not _check_bearer(req, DASHBOARD_TRIGGER_KEY.value):
         return https_fn.Response('{"error":"não autorizado"}', status=401,
                                   headers={"Content-Type": "application/json"})
@@ -346,11 +355,25 @@ def trigger_approve_draft(req: https_fn.Request) -> https_fn.Response:
         return https_fn.Response('{"error":"draft_id é obrigatório"}', status=400,
                                   headers={"Content-Type": "application/json"})
     action = str(body.get("action") or "").strip()
-    if action not in ("approve", "reject"):
-        return https_fn.Response('{"error":"action deve ser \\"approve\\" ou \\"reject\\""}', status=400,
-                                  headers={"Content-Type": "application/json"})
+    if action not in ("approve", "reject", "set_budget"):
+        return https_fn.Response(
+            '{"error":"action deve ser \\"approve\\", \\"reject\\" ou \\"set_budget\\""}',
+            status=400, headers={"Content-Type": "application/json"},
+        )
 
-    return _dispatch_workflow("approve-draft.yml", {"draft_id": draft_id, "action": action})
+    workflow_inputs = {"draft_id": draft_id, "action": action}
+    if action == "set_budget":
+        budget = str(body.get("budget") or "").strip()
+        try:
+            valid = budget and float(budget) > 0
+        except ValueError:
+            valid = False
+        if not valid:
+            return https_fn.Response('{"error":"orçamento diário inválido"}', status=400,
+                                      headers={"Content-Type": "application/json"})
+        workflow_inputs["budget"] = budget
+
+    return _dispatch_workflow("approve-draft.yml", workflow_inputs)
 
 
 @https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
@@ -381,3 +404,47 @@ def trigger_analyze_catalog(req: https_fn.Request) -> https_fn.Response:
             workflow_inputs[field] = value
 
     return _dispatch_workflow("analyze-catalog.yml", workflow_inputs)
+
+
+@https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
+                      cors=CorsOptions(cors_origins="*", cors_methods=["GET"]))
+def list_recent_runs(req: https_fn.Request) -> https_fn.Response:
+    """Lista as últimas execuções dos três workflows disparáveis pelo dashboard, mais
+    recentes primeiro — mostrado no card "Execuções recentes". Existe porque um disparo pode
+    falhar antes de gerar qualquer rascunho (ex: um Secret faltando) e, sem isso, o usuário
+    só saberia que "não apareceu nada", sem nenhuma pista do motivo."""
+    if not _check_bearer(req, DASHBOARD_TRIGGER_KEY.value):
+        return https_fn.Response('{"error":"não autorizado"}', status=401,
+                                  headers={"Content-Type": "application/json"})
+
+    runs = []
+    for workflow_file in TRACKED_WORKFLOWS:
+        try:
+            response = requests.get(
+                f"{GITHUB_API_BASE}/actions/workflows/{workflow_file}/runs",
+                headers={
+                    "Authorization": f"Bearer {GITHUB_PAT.value}",
+                    "Accept": "application/vnd.github+json",
+                },
+                params={"per_page": 5, "branch": GITHUB_REF},
+                timeout=15,
+            )
+            response.raise_for_status()
+        except requests.RequestException:
+            # Um workflow com problema de leitura não deve impedir de ver os outros.
+            continue
+
+        for run in response.json().get("workflow_runs", []):
+            runs.append({
+                "workflow": workflow_file,
+                "run_number": run.get("run_number"),
+                "status": run.get("status"),
+                "conclusion": run.get("conclusion"),
+                "html_url": run.get("html_url"),
+                "created_at": run.get("created_at"),
+                "updated_at": run.get("updated_at"),
+            })
+
+    runs.sort(key=lambda r: r["created_at"] or "", reverse=True)
+    return https_fn.Response(json.dumps({"runs": runs[:15]}), status=200,
+                              headers={"Content-Type": "application/json"})

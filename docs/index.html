@@ -308,6 +308,9 @@
   .rec-card .leilao-tag { display: inline-block; font-size: 11px; font-weight: 600; color: var(--text-secondary); background: var(--border); border-radius: 999px; padding: 2px 9px; margin-bottom: 8px; }
   .rec-card .draft-preview { width: 100%; border-radius: 6px; margin-bottom: 8px; display: block; border: 1px solid var(--border); }
   .rec-card .draft-actions { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; align-items: center; }
+  .rec-card .budget-editor { display: flex; gap: 8px; align-items: center; margin-top: 10px; flex-wrap: wrap; }
+  .rec-card .budget-editor label { font-size: 12px; color: var(--text-secondary); }
+  .rec-card .budget-editor input { width: 90px; padding: 5px 8px; font-size: 12px; }
   .btn-sm { padding: 5px 10px; font-size: 12px; }
   .btn-danger { background: transparent; color: var(--warning); border-color: var(--warning); }
   .btn-danger:hover { opacity: 0.85; }
@@ -316,6 +319,11 @@
   .filter-row { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; flex-wrap: wrap; }
   .filter-row label { font-size: 12px; font-weight: 600; color: var(--text-secondary); }
   .filter-row select.config-input { width: auto; min-width: 220px; }
+
+  .leilao-summary { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: baseline; padding: 12px 14px; margin-bottom: 14px; border-radius: 8px; background: var(--accent-tint); }
+  .leilao-summary h3 { font-size: 14px; margin: 0; width: 100%; }
+  .leilao-summary .stat { font-size: 12px; color: var(--text-secondary); }
+  .leilao-summary .stat b { color: var(--text-primary); font-variant-numeric: tabular-nums; }
 
   .empty { color: var(--text-muted); font-size: 13px; padding: 24px 0; text-align: center; }
 
@@ -421,6 +429,21 @@
     <div id="config-connect" style="display:none;">
       <a id="connect-fb-link" href="#" class="btn-primary">Conectar com Facebook</a>
       <button id="change-url-btn" class="btn-secondary" type="button">Trocar endereço</button>
+    </div>
+  </section>
+
+  <section class="card" id="runs-card">
+    <h2>Execuções recentes</h2>
+    <p class="card-sub">
+      Todo disparo pelo dashboard (analisar catálogo, sugerir público-alvo, aprovar
+      rascunho) aparece aqui — inclusive quando falha, com o motivo, pra nunca sumir sem
+      você saber o que aconteceu.
+    </p>
+    <div id="runs-list" class="feed"></div>
+    <div id="runs-empty" class="empty" style="display:none;">Nenhuma execução recente.</div>
+    <div style="margin-top:12px;display:flex;align-items:center;gap:10px;">
+      <button id="runs-refresh-btn" class="btn-secondary" type="button">Atualizar</button>
+      <span id="runs-status-text" style="font-size:12px;color:var(--text-muted);"></span>
     </div>
   </section>
 
@@ -614,8 +637,12 @@
         <option value="">Todos os leilões</option>
       </select>
     </div>
+    <div id="leilao-summary" class="leilao-summary" style="display:none;"></div>
     <div id="drafts-grid" class="rec-grid"></div>
     <div id="drafts-empty" class="empty" style="display:none;">Nenhum rascunho pendente no momento.</div>
+    <div id="drafts-load-more" style="display:none;text-align:center;margin-top:14px;">
+      <button id="drafts-load-more-btn" class="btn-secondary" type="button"></button>
+    </div>
     <div id="drafts-created" class="feed" style="margin-top:14px;"></div>
     <div id="drafts-errors" class="feed" style="margin-top:14px;"></div>
   </section>
@@ -745,7 +772,10 @@
     draftsEmpty: document.getElementById("drafts-empty"),
     draftsCreated: document.getElementById("drafts-created"),
     draftsErrors: document.getElementById("drafts-errors"),
-    leilaoFilter: document.getElementById("leilao-filter")
+    leilaoFilter: document.getElementById("leilao-filter"),
+    leilaoSummary: document.getElementById("leilao-summary"),
+    draftsLoadMore: document.getElementById("drafts-load-more"),
+    draftsLoadMoreBtn: document.getElementById("drafts-load-more-btn")
   };
 
   function esc(str) {
@@ -1054,6 +1084,8 @@
   };
 
   var lastDraftsData = null;
+  var DRAFTS_PAGE_SIZE = 12; // um leilão pode ter até ~60 lotes — evita jogar tudo na tela de uma vez
+  var draftsVisibleCount = DRAFTS_PAGE_SIZE;
   var DRAFTS_URL_KEY = "marketing_functions_base_url";
   var DRAFTS_TRIGGER_KEY = "marketing_trigger_key";
 
@@ -1069,7 +1101,31 @@
     return fmtMoney((d.total_budget_cents || 0) / 100) + " total";
   }
 
-  function draftAction(draftId, action, statusEl, buttons) {
+  // Estimativa só para pré-preencher o campo de edição — a conta de verdade (com o mesmo
+  // padrão de dias mínimo/padrão) é feita em src/ai/budget_rules.py no momento da aprovação.
+  function draftDaysUntil(dateStr) {
+    if (!dateStr) return 30;
+    var parsed = new Date(dateStr + "T00:00:00");
+    if (isNaN(parsed.getTime())) return 30;
+    var today = new Date();
+    today.setHours(0, 0, 0, 0);
+    var diffDays = Math.round((parsed - today) / 86400000);
+    return Math.max(diffDays, 1);
+  }
+  function draftDailyReaisEstimate(d) {
+    if (d.daily_budget_cents) return (d.daily_budget_cents / 100).toFixed(2);
+    if (d.total_budget_cents) return (d.total_budget_cents / 100 / draftDaysUntil(d.pause_date)).toFixed(2);
+    return "";
+  }
+
+  var ACTION_STATUS_MESSAGES = {
+    approve: "Disparado! A campanha pausada aparece aqui como “Criada” quando o GitHub Actions terminar.",
+    reject: "Disparado! Este rascunho será marcado como rejeitado quando o GitHub Actions terminar.",
+    set_budget: "Disparado! O novo orçamento aparece aqui quando o GitHub Actions terminar (1-2 minutos)."
+  };
+  var ACTION_PENDING_MESSAGES = { approve: "Aprovando…", reject: "Rejeitando…", set_budget: "Salvando orçamento…" };
+
+  function draftAction(draftId, action, statusEl, buttons, extra) {
     var baseUrl = draftsReadBaseUrl();
     var key = draftsReadTriggerKey();
     if (!baseUrl) {
@@ -1081,20 +1137,21 @@
       return;
     }
     buttons.forEach(function (b) { b.disabled = true; });
-    statusEl.textContent = action === "approve" ? "Aprovando…" : "Rejeitando…";
+    statusEl.textContent = ACTION_PENDING_MESSAGES[action] || "Enviando…";
+    var payload = { draft_id: draftId, action: action };
+    for (var k in extra) { if (Object.prototype.hasOwnProperty.call(extra, k)) payload[k] = extra[k]; }
     fetch(baseUrl + "/trigger_approve_draft", {
       method: "POST",
       headers: { "Content-Type": "application/json", "Authorization": "Bearer " + key },
-      body: JSON.stringify({ draft_id: draftId, action: action })
+      body: JSON.stringify(payload)
     })
       .then(function (resp) {
         return resp.json().catch(function () { return {}; }).then(function (data) { return { ok: resp.ok, data: data }; });
       })
       .then(function (result) {
         if (result.ok) {
-          statusEl.textContent = action === "approve"
-            ? "Disparado! A campanha pausada aparece aqui como “Criada” quando o GitHub Actions terminar."
-            : "Disparado! Este rascunho será marcado como rejeitado quando o GitHub Actions terminar.";
+          statusEl.textContent = ACTION_STATUS_MESSAGES[action] || "Disparado!";
+          if (window.refreshRecentRuns) window.refreshRecentRuns();
         } else {
           buttons.forEach(function (b) { b.disabled = false; });
           statusEl.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
@@ -1117,6 +1174,28 @@
     if (names.indexOf(current) !== -1) els.leilaoFilter.value = current;
   }
 
+  function renderLeilaoSummary(filterValue, pending, created, errors) {
+    if (!filterValue) {
+      els.leilaoSummary.style.display = "none";
+      return;
+    }
+    var ready = pending.filter(function (d) { return !(d.missing_fields || []).length; }).length;
+    var missing = pending.length - ready;
+    var totalDailyReais = pending.reduce(function (sum, d) {
+      var v = parseFloat(draftDailyReaisEstimate(d));
+      return sum + (isNaN(v) ? 0 : v);
+    }, 0);
+    els.leilaoSummary.style.display = "flex";
+    els.leilaoSummary.innerHTML =
+      "<h3>" + esc(filterValue) + "</h3>" +
+      "<span class=\"stat\"><b>" + esc(pending.length + created.length + errors.length) + "</b> lote(s) no total</span>" +
+      "<span class=\"stat\"><b>" + esc(ready) + "</b> pronto(s) para aprovar</span>" +
+      (missing ? "<span class=\"stat\"><b>" + esc(missing) + "</b> aguardando foto/dados</span>" : "") +
+      (created.length ? "<span class=\"stat\"><b>" + esc(created.length) + "</b> já criada(s)</span>" : "") +
+      (errors.length ? "<span class=\"stat\"><b>" + esc(errors.length) + "</b> com erro</span>" : "") +
+      "<span class=\"stat\">orçamento diário somado dos pendentes: <b>" + esc(fmtMoney(totalDailyReais)) + "</b></span>";
+  }
+
   function renderDrafts(data) {
     lastDraftsData = data;
     populateLeilaoFilter(data);
@@ -1124,9 +1203,14 @@
     var matchesFilter = function (d) { return !filterValue || d.leilao === filterValue; };
 
     var pending = (data.pending || []).filter(matchesFilter);
+    var created = (data.recent_created || []).filter(matchesFilter);
+    var errors = (data.recent_errors || []).filter(matchesFilter);
+    renderLeilaoSummary(filterValue, pending, created, errors);
+
     els.draftsGrid.innerHTML = "";
     els.draftsEmpty.style.display = pending.length ? "none" : "block";
-    pending.forEach(function (d) {
+    var visible = pending.slice(0, draftsVisibleCount);
+    visible.forEach(function (d) {
       var div = document.createElement("div");
       div.className = "rec-card";
       var missing = d.missing_fields || [];
@@ -1153,6 +1237,11 @@
         (missing.length
           ? '<div class="rec-source"><span class="chip rejected"><span class="dot"></span>faltam: ' + esc(missing.join(", ")) + '</span></div>'
           : '<div class="rec-source"><span class="chip applied"><span class="dot"></span>pronto para aprovar</span></div>') +
+        '<div class="budget-editor">' +
+        '<label>Orçamento diário (R$)</label>' +
+        '<input type="number" step="0.01" min="0.01" class="config-input" data-budget-input value="' + esc(draftDailyReaisEstimate(d)) + '" />' +
+        '<button type="button" class="btn-secondary btn-sm" data-save-budget="' + esc(d.draft_id) + '">Salvar</button>' +
+        '</div>' +
         '<div class="draft-actions">' +
         (missing.length ? "" : '<button type="button" class="btn-primary btn-sm" data-approve="' + esc(d.draft_id) + '">Aprovar e criar campanha</button>') +
         '<button type="button" class="btn-danger btn-sm" data-reject="' + esc(d.draft_id) + '">Rejeitar</button>' +
@@ -1163,15 +1252,30 @@
       var statusEl = div.querySelector(".draft-action-status");
       var approveBtn = div.querySelector("[data-approve]");
       var rejectBtn = div.querySelector("[data-reject]");
-      var relevantButtons = [rejectBtn].concat(approveBtn ? [approveBtn] : []);
+      var saveBudgetBtn = div.querySelector("[data-save-budget]");
+      var budgetInput = div.querySelector("[data-budget-input]");
+      var relevantButtons = [rejectBtn, saveBudgetBtn].concat(approveBtn ? [approveBtn] : []);
       if (approveBtn) approveBtn.addEventListener("click", function () { draftAction(d.draft_id, "approve", statusEl, relevantButtons); });
       rejectBtn.addEventListener("click", function () {
         if (!window.confirm("Rejeitar este rascunho? Não é possível desfazer.")) return;
         draftAction(d.draft_id, "reject", statusEl, relevantButtons);
       });
+      saveBudgetBtn.addEventListener("click", function () {
+        var value = parseFloat(budgetInput.value);
+        if (!value || value <= 0) {
+          statusEl.textContent = "Preencha um orçamento diário válido antes de salvar.";
+          return;
+        }
+        draftAction(d.draft_id, "set_budget", statusEl, relevantButtons, { budget: value.toFixed(2) });
+      });
     });
 
-    var created = (data.recent_created || []).filter(matchesFilter);
+    var remaining = pending.length - visible.length;
+    els.draftsLoadMore.style.display = remaining > 0 ? "block" : "none";
+    if (remaining > 0) {
+      els.draftsLoadMoreBtn.textContent = "Mostrar mais (" + remaining + " restante" + (remaining === 1 ? "" : "s") + ")";
+    }
+
     els.draftsCreated.innerHTML = created.length
       ? '<p class="card-sub" style="margin:0 0 8px;">Criadas recentemente</p>' : "";
     created.forEach(function (c) {
@@ -1185,7 +1289,6 @@
       els.draftsCreated.appendChild(item);
     });
 
-    var errors = (data.recent_errors || []).filter(matchesFilter);
     els.draftsErrors.innerHTML = errors.length
       ? '<p class="card-sub" style="margin:0 0 8px;">Erros recentes</p>' : "";
     errors.forEach(function (e) {
@@ -1202,6 +1305,12 @@
   }
 
   els.leilaoFilter.addEventListener("change", function () {
+    draftsVisibleCount = DRAFTS_PAGE_SIZE;
+    if (lastDraftsData) renderDrafts(lastDraftsData);
+  });
+
+  els.draftsLoadMoreBtn.addEventListener("click", function () {
+    draftsVisibleCount += DRAFTS_PAGE_SIZE;
     if (lastDraftsData) renderDrafts(lastDraftsData);
   });
 
@@ -1417,6 +1526,7 @@
         submitBtn.disabled = false;
         if (result.ok) {
           statusText.textContent = "Disparado! O rascunho aparece no card \"Rascunhos de anúncios\" assim que o GitHub Actions terminar (1-2 minutos).";
+          if (window.refreshRecentRuns) window.refreshRecentRuns();
         } else {
           statusText.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
         }
@@ -1499,6 +1609,7 @@
         submitBtn.disabled = false;
         if (result.ok) {
           statusText.textContent = "Disparado! Pode levar alguns minutos pra ler o catálogo inteiro — os rascunhos de todos os lotes aparecem no card \"Rascunhos de anúncios\" quando terminar.";
+          if (window.refreshRecentRuns) window.refreshRecentRuns();
         } else {
           statusText.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
         }
@@ -1508,5 +1619,113 @@
         statusText.textContent = "Não consegui contatar o servidor — confira o endereço das Cloud Functions na aba Configurações.";
       });
   });
+})();
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  // Card "Execuções recentes": mostra o status de cada disparo pelo dashboard (rodando,
+  // sucesso, falhou) consultando list_recent_runs — existe porque, sem isso, um disparo que
+  // falha antes de gerar rascunho nenhum (ex: um Secret do GitHub faltando) simplesmente
+  // "some" para quem está olhando só o dashboard, sem nenhuma pista do motivo.
+  var RUNS_URL_KEY = "marketing_functions_base_url";
+  var RUNS_TRIGGER_KEY = "marketing_trigger_key";
+
+  var WORKFLOW_LABELS = {
+    "suggest-audience.yml": "Sugerir público-alvo",
+    "analyze-catalog.yml": "Analisar catálogo do leilão",
+    "approve-draft.yml": "Aprovar rascunho"
+  };
+
+  function runsReadBaseUrl() {
+    try { return (localStorage.getItem(RUNS_URL_KEY) || "").replace(/\/+$/, ""); } catch (e) { return ""; }
+  }
+  function runsReadTriggerKey() {
+    try { return localStorage.getItem(RUNS_TRIGGER_KEY) || ""; } catch (e) { return ""; }
+  }
+  function runsEsc(str) {
+    return String(str == null ? "" : str).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+  function fmtRunDateTime(iso) {
+    if (!iso) return "—";
+    try {
+      return new Date(iso).toLocaleString("pt-BR", { day: "2-digit", month: "2-digit", hour: "2-digit", minute: "2-digit" });
+    } catch (e) { return iso; }
+  }
+  function statusChip(run) {
+    if (run.status !== "completed") {
+      return '<span class="chip simulated"><span class="dot"></span>Rodando…</span>';
+    }
+    if (run.conclusion === "success") {
+      return '<span class="chip applied"><span class="dot"></span>Sucesso</span>';
+    }
+    var label = run.conclusion === "cancelled" ? "Cancelado" : (run.conclusion === "timed_out" ? "Expirou" : "Falhou");
+    return '<span class="chip rejected"><span class="dot"></span>' + label + '</span>';
+  }
+
+  var runsList = document.getElementById("runs-list");
+  var runsEmpty = document.getElementById("runs-empty");
+  var runsStatusText = document.getElementById("runs-status-text");
+  var refreshBtn = document.getElementById("runs-refresh-btn");
+
+  function renderRuns(runs) {
+    runsList.innerHTML = "";
+    runsEmpty.style.display = runs.length ? "none" : "block";
+    runs.forEach(function (run) {
+      var item = document.createElement("div");
+      item.className = "feed-item";
+      item.innerHTML =
+        '<div class="row1"><span class="action-label">' +
+        runsEsc(WORKFLOW_LABELS[run.workflow] || run.workflow) + ' #' + runsEsc(run.run_number) + '</span>' +
+        statusChip(run) + '</div>' +
+        '<div class="foot"><span>' + runsEsc(fmtRunDateTime(run.created_at)) + '</span>' +
+        (run.html_url ? '<a href="' + runsEsc(run.html_url) + '" target="_blank" rel="noopener noreferrer">Ver no GitHub ↗</a>' : '<span></span>') +
+        '</div>';
+      runsList.appendChild(item);
+    });
+  }
+
+  function loadRecentRuns() {
+    var baseUrl = runsReadBaseUrl();
+    var key = runsReadTriggerKey();
+    if (!baseUrl) {
+      runsStatusText.textContent = "Configure o endereço das Cloud Functions na aba Configurações primeiro.";
+      renderRuns([]);
+      return;
+    }
+    if (!key) {
+      runsStatusText.textContent = 'Configure a chave de disparo no card "Sugerir público-alvo" primeiro.';
+      renderRuns([]);
+      return;
+    }
+    refreshBtn.disabled = true;
+    runsStatusText.textContent = "Atualizando…";
+    fetch(baseUrl + "/list_recent_runs", { headers: { "Authorization": "Bearer " + key } })
+      .then(function (resp) { if (!resp.ok) throw new Error("failed"); return resp.json(); })
+      .then(function (data) {
+        renderRuns(data.runs || []);
+        runsStatusText.textContent = "";
+      })
+      .catch(function () {
+        runsStatusText.textContent = "Não consegui carregar as execuções recentes.";
+      })
+      .then(function () {
+        refreshBtn.disabled = false;
+      });
+  }
+
+  refreshBtn.addEventListener("click", loadRecentRuns);
+  loadRecentRuns();
+
+  // Os outros cards (Analisar catálogo, Sugerir público-alvo, Aprovar/Rejeitar rascunho)
+  // chamam isso pouco depois de disparar algo, pra esse card já mostrar "Rodando…" sem
+  // precisar que o usuário clique em "Atualizar" na mão.
+  window.refreshRecentRuns = function () {
+    setTimeout(loadRecentRuns, 3000);
+  };
 })();
 </script>

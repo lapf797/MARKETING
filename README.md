@@ -447,6 +447,12 @@ precisar gerar token manualmente — ver `docs/SETUP_FIREBASE_OAUTH.md`). O ende
 Cloud Functions fica salvo só no navegador (`localStorage`); nenhum token passa pelo
 dashboard em nenhum momento.
 
+O card **"Execuções recentes"** mostra o status de cada disparo pelo dashboard (analisar
+catálogo, sugerir público-alvo, aprovar rascunho) — rodando, com sucesso, ou com falha
+(com um link direto pro log do GitHub Actions). Existe justamente pra um disparo que falha
+antes de gerar qualquer rascunho (ex: um Secret do GitHub faltando ou errado) nunca passar
+em silêncio — sem ele, a única pista seria "não apareceu nada" no card de rascunhos.
+
 O card **"Analisar catálogo do leilão"** é o jeito rápido de anunciar um leilão inteiro:
 cola o nome do leilão e a URL pública do PDF do catálogo, e a IA lê todos os lotes de uma
 vez (até 60) e já gera um rascunho para cada um — sem repetir o passo a passo lote a lote.
@@ -463,10 +469,14 @@ criativo (quando já tem foto), a manchete/copy do anúncio, e a recomendação 
 (idade, gênero, interesses, o raciocínio da IA). Um filtro **"Leilão"** deixa ver só os
 rascunhos/campanhas de um leilão específico, acompanhando leilão a leilão como as
 campanhas estão indo — útil especialmente com um catálogo de dezenas de lotes de uma vez.
-Cada rascunho pronto (sem campos faltando) tem botões **"Aprovar e criar campanha"** e
-**"Rejeitar"** — aprovar dispara `create_campaigns_from_drafts.py --confirm` no GitHub
-Actions e cria a campanha **pausada** de verdade no Facebook; rejeitar descarta sem tocar
-no Facebook. Usa a mesma chave de disparo dos dois cards acima.
+Ao filtrar por um leilão, aparece um resumo (quantos lotes no total, prontos, aguardando
+foto/dados, já criados, e o orçamento diário somado) e a lista pagina de 12 em 12 ("Mostrar
+mais") para não sobrecarregar a tela com um catálogo grande. Cada rascunho tem um campo de
+**orçamento diário editável** (botão "Salvar" próprio, independente de aprovar) e, quando
+pronto (sem campos faltando), os botões **"Aprovar e criar campanha"** e **"Rejeitar"** —
+aprovar dispara `create_campaigns_from_drafts.py --confirm` no GitHub Actions e cria a
+campanha **pausada** de verdade no Facebook; rejeitar descarta sem tocar no Facebook. Os
+três usam a mesma chave de disparo dos dois cards acima.
 
 ## Sistema de segurança (guardrails)
 

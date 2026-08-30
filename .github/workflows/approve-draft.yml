@@ -7,10 +7,13 @@ on:
         description: "ID do rascunho (logs/ad_drafts.json)"
         required: true
       action:
-        description: "Aprovar (cria a campanha PAUSADA de verdade) ou rejeitar"
+        description: "Aprovar (cria a campanha PAUSADA de verdade), rejeitar, ou ajustar o orcamento"
         required: true
         type: choice
-        options: ["approve", "reject"]
+        options: ["approve", "reject", "set_budget"]
+      budget:
+        description: "Orcamento diario (obrigatorio quando action=set_budget), na moeda da conta"
+        required: false
 
 permissions:
   contents: write
@@ -34,6 +37,10 @@ jobs:
         if: ${{ inputs.action == 'reject' }}
         run: python scripts/create_campaigns_from_drafts.py --draft-id "${{ inputs.draft_id }}" --reject
 
+      - name: Ajustar orcamento do rascunho
+        if: ${{ inputs.action == 'set_budget' }}
+        run: python scripts/create_campaigns_from_drafts.py --draft-id "${{ inputs.draft_id }}" --budget "${{ inputs.budget }}"
+
       - name: Aprovar rascunho (cria a campanha PAUSADA no Facebook Ads)
         if: ${{ inputs.action == 'approve' }}
         env:
@@ -50,9 +57,11 @@ jobs:
         run: python scripts/create_campaigns_from_drafts.py --draft-id "${{ inputs.draft_id }}" --confirm
 
       - name: Commit dos dados do dashboard
+        env:
+          COMMIT_LABEL: ${{ inputs.action == 'approve' && 'aprovado' || (inputs.action == 'reject' && 'rejeitado' || 'com orcamento ajustado') }}
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add logs/ad_drafts.json docs/drafts_data.json
-          git diff --cached --quiet || git commit -m "chore: rascunho de anuncio ${{ inputs.action == 'approve' && 'aprovado' || 'rejeitado' }} (${{ inputs.draft_id }})"
+          git diff --cached --quiet || git commit -m "chore: rascunho de anuncio $COMMIT_LABEL (${{ inputs.draft_id }})"
           git push

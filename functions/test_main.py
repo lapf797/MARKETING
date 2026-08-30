@@ -363,6 +363,43 @@ def test_trigger_approve_draft_dispatches_reject_workflow(mock_post):
     assert sent_json["inputs"]["action"] == "reject"
 
 
+def test_trigger_approve_draft_rejects_set_budget_without_budget():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc123", "action": "set_budget"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+    assert response.status_code == 400
+
+
+def test_trigger_approve_draft_rejects_set_budget_with_non_positive_budget():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc123", "action": "set_budget", "budget": "0"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+    assert response.status_code == 400
+
+
+def test_trigger_approve_draft_rejects_set_budget_with_non_numeric_budget():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc123", "action": "set_budget", "budget": "cem reais"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+    assert response.status_code == 400
+
+
+@patch("main.requests.post")
+def test_trigger_approve_draft_dispatches_set_budget_workflow(mock_post):
+    mock_post.return_value = _mock_github_response(204)
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"draft_id": "abc123", "action": "set_budget", "budget": "120.50"}
+    with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
+        response = main.trigger_approve_draft(request)
+
+    assert response.status_code == 200
+    sent_json = mock_post.call_args.kwargs["json"]
+    assert sent_json["inputs"] == {"draft_id": "abc123", "action": "set_budget", "budget": "120.50"}
+
+
 @patch("main.requests.post")
 def test_trigger_approve_draft_returns_502_when_github_rejects(mock_post):
     mock_post.return_value = _mock_github_response(422, "Validation failed")
@@ -438,3 +475,74 @@ def test_trigger_analyze_catalog_returns_502_when_github_rejects(mock_post):
     with app.test_request_context(f"{BASE}/trigger_analyze_catalog", method="POST", json=body, headers=headers):
         response = main.trigger_analyze_catalog(request)
     assert response.status_code == 502
+
+
+def _mock_github_runs_response(runs: list) -> MagicMock:
+    response = MagicMock()
+    response.raise_for_status.return_value = None
+    response.json.return_value = {"workflow_runs": runs}
+    return response
+
+
+def test_list_recent_runs_rejects_missing_authorization_header():
+    with app.test_request_context(f"{BASE}/list_recent_runs", method="GET"):
+        response = main.list_recent_runs(request)
+    assert response.status_code == 401
+
+
+def test_list_recent_runs_rejects_wrong_trigger_key():
+    headers = {"Authorization": "Bearer chave-errada"}
+    with app.test_request_context(f"{BASE}/list_recent_runs", method="GET", headers=headers):
+        response = main.list_recent_runs(request)
+    assert response.status_code == 401
+
+
+@patch("main.requests.get")
+def test_list_recent_runs_merges_and_sorts_across_workflows(mock_get):
+    def fake_get(url, **kwargs):
+        if "suggest-audience" in url:
+            return _mock_github_runs_response([{
+                "run_number": 3, "status": "completed", "conclusion": "success",
+                "html_url": "https://x/1", "created_at": "2026-08-30T10:00:00Z", "updated_at": "2026-08-30T10:01:00Z",
+            }])
+        if "analyze-catalog" in url:
+            return _mock_github_runs_response([{
+                "run_number": 1, "status": "completed", "conclusion": "failure",
+                "html_url": "https://x/2", "created_at": "2026-08-30T12:01:16Z", "updated_at": "2026-08-30T12:01:40Z",
+            }])
+        return _mock_github_runs_response([])
+
+    mock_get.side_effect = fake_get
+    headers = {"Authorization": "Bearer chavetrigger"}
+    with app.test_request_context(f"{BASE}/list_recent_runs", method="GET", headers=headers):
+        response = main.list_recent_runs(request)
+
+    assert response.status_code == 200
+    data = json.loads(response.get_data(as_text=True))
+    assert len(data["runs"]) == 2
+    # mais recente primeiro (analyze-catalog às 12:01 vem antes de suggest-audience às 10:00)
+    assert data["runs"][0]["workflow"] == "analyze-catalog.yml"
+    assert data["runs"][0]["conclusion"] == "failure"
+    assert data["runs"][1]["workflow"] == "suggest-audience.yml"
+
+
+@patch("main.requests.get")
+def test_list_recent_runs_skips_workflow_that_fails_to_load(mock_get):
+    import requests as requests_module
+
+    def fake_get(url, **kwargs):
+        if "suggest-audience" in url:
+            raise requests_module.ConnectionError("timeout")
+        return _mock_github_runs_response([{
+            "run_number": 1, "status": "in_progress", "conclusion": None,
+            "html_url": "https://x/2", "created_at": "2026-08-30T12:01:16Z", "updated_at": "2026-08-30T12:01:16Z",
+        }])
+
+    mock_get.side_effect = fake_get
+    headers = {"Authorization": "Bearer chavetrigger"}
+    with app.test_request_context(f"{BASE}/list_recent_runs", method="GET", headers=headers):
+        response = main.list_recent_runs(request)
+
+    assert response.status_code == 200
+    data = json.loads(response.get_data(as_text=True))
+    assert len(data["runs"]) == 2  # analyze-catalog.yml e approve-draft.yml, suggest-audience pulado

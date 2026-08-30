@@ -196,14 +196,18 @@ opcionalmente a **URL da foto do lote** (gera a pré-visualização do anúncio)
 diário, e clique **Gerar rascunho**.
 
 Depois de alguns minutos (tempo do GitHub Actions rodar — mais demorado quanto mais lotes
-tiver o catálogo), os rascunhos aparecem no card "Rascunhos de anúncios" — nada foi criado
-no Facebook ainda. Revise a recomendação de público, a copy e a pré-visualização de cada
-um (use o filtro por leilão pra ver só os deste); se estiver tudo certo, clique **"Aprovar
-e criar campanha"** (cria a campanha **pausada** de verdade no Facebook Ads) ou
-**"Rejeitar"** — os mesmos botões usam a chave configurada no passo 5. Os rascunhos vindos
-do catálogo em PDF ainda precisam de uma foto anexada antes de poder aprovar (via
-`create_campaigns_from_drafts.py --draft-id <id> --picture-url ...`) — o card "Rascunhos
-de anúncios" mostra "faltam: picture_url" nesses casos.
+tiver o catálogo; acompanhe o andamento no card "Execuções recentes", no topo do
+dashboard), os rascunhos aparecem no card "Rascunhos de anúncios" — nada foi criado no
+Facebook ainda. Revise a recomendação de público, a copy e a pré-visualização de cada um
+(use o filtro por leilão pra ver só os deste leilão, com um resumo de quantos lotes estão
+prontos/faltando/já criados). Cada rascunho também tem um campo **"Orçamento diário"**
+editável — ajuste o valor e clique **Salvar** quantas vezes quiser antes de aprovar. Quando
+estiver tudo certo, clique **"Aprovar e criar campanha"** (cria a campanha **pausada** de
+verdade no Facebook Ads) ou **"Rejeitar"** — os três botões (orçamento, aprovar, rejeitar)
+usam a chave configurada no passo 5. Os rascunhos vindos do catálogo em PDF ainda precisam
+de uma foto anexada antes de poder aprovar (via `create_campaigns_from_drafts.py
+--draft-id <id> --picture-url ...`) — o card "Rascunhos de anúncios" mostra "faltam:
+picture_url" nesses casos.
 
 ---
 
@@ -240,3 +244,17 @@ de anúncios" mostra "faltam: picture_url" nesses casos.
   "Aprovar rascunho" na aba Actions do GitHub — se falhou, o log mostra o motivo (ex:
   `account_id`/`page_id`/`picture_url` faltando, ou a Meta recusou algum campo); o rascunho
   aparece em "Erros recentes" no dashboard com a mensagem.
+- **Disparei algo (catálogo, público-alvo, aprovar) e nada aparece no dashboard depois de
+  alguns minutos**: olhe o card **"Execuções recentes"** no topo do dashboard — ele mostra
+  se a execução ainda está rodando, terminou com sucesso, ou falhou (com um link direto pro
+  log). Os dois motivos mais comuns de falha logo no início da execução (poucos segundos,
+  antes de qualquer rascunho ser gerado) são secrets do GitHub faltando ou errados:
+  - **`o endpoint de token recusou a chave (FB_TOKEN_API_KEY)`**: o secret `FB_TOKEN_API_KEY`
+    do GitHub não é igual ao `TOKEN_API_KEY` cadastrado no Firebase (passo 5). Copie o valor
+    de novo do Cloud Shell (`firebase functions:secrets:access TOKEN_API_KEY --project
+    SEU-PROJECT-ID`) e regrave o secret `FB_TOKEN_API_KEY` no GitHub — sem espaço nem quebra
+    de linha extra.
+  - **`Variável de ambiente obrigatória não definida: FB_AD_ACCOUNT_ID` (ou `FB_APP_ID`,
+    `FB_APP_SECRET`, `ANTHROPIC_API_KEY`)**: esse secret nunca foi cadastrado no GitHub —
+    volte para a seção "6. Configurar os Secrets no GitHub" do `README.md` e cadastre os
+    que faltam em **Settings → Secrets and variables → Actions**.
