@@ -371,3 +371,70 @@ def test_trigger_approve_draft_returns_502_when_github_rejects(mock_post):
     with app.test_request_context(f"{BASE}/trigger_approve_draft", method="POST", json=body, headers=headers):
         response = main.trigger_approve_draft(request)
     assert response.status_code == 502
+
+
+def test_trigger_analyze_catalog_rejects_missing_authorization_header():
+    body = {"pdf_url": "https://exemplo.com/catalogo.pdf", "leilao": "Leilão 1"}
+    with app.test_request_context(f"{BASE}/trigger_analyze_catalog", method="POST", json=body):
+        response = main.trigger_analyze_catalog(request)
+    assert response.status_code == 401
+
+
+def test_trigger_analyze_catalog_rejects_missing_pdf_url():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"leilao": "Leilão 1"}
+    with app.test_request_context(f"{BASE}/trigger_analyze_catalog", method="POST", json=body, headers=headers):
+        response = main.trigger_analyze_catalog(request)
+    assert response.status_code == 400
+    assert "PDF" in response.get_data(as_text=True)
+
+
+def test_trigger_analyze_catalog_rejects_missing_leilao():
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"pdf_url": "https://exemplo.com/catalogo.pdf"}
+    with app.test_request_context(f"{BASE}/trigger_analyze_catalog", method="POST", json=body, headers=headers):
+        response = main.trigger_analyze_catalog(request)
+    assert response.status_code == 400
+    assert "leilão" in response.get_data(as_text=True)
+
+
+@patch("main.requests.post")
+def test_trigger_analyze_catalog_dispatches_workflow_with_correct_inputs(mock_post):
+    mock_post.return_value = _mock_github_response(204)
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {
+        "pdf_url": "https://exemplo.com/catalogo.pdf", "leilao": "Leilão 15498 - Imóveis Setembro",
+        "link_url": "https://exemplo.com/leilao/imoveis", "account_id": "act_1", "page_id": "p1",
+    }
+    with app.test_request_context(f"{BASE}/trigger_analyze_catalog", method="POST", json=body, headers=headers):
+        response = main.trigger_analyze_catalog(request)
+
+    assert response.status_code == 200
+    call = mock_post.call_args
+    assert call.args[0] == f"{main.GITHUB_API_BASE}/actions/workflows/analyze-catalog.yml/dispatches"
+    sent_json = call.kwargs["json"]
+    assert sent_json["inputs"] == {
+        "pdf_url": "https://exemplo.com/catalogo.pdf", "leilao": "Leilão 15498 - Imóveis Setembro",
+        "link_url": "https://exemplo.com/leilao/imoveis", "account_id": "act_1", "page_id": "p1",
+    }
+
+
+@patch("main.requests.post")
+def test_trigger_analyze_catalog_omits_blank_optional_fields(mock_post):
+    mock_post.return_value = _mock_github_response(204)
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"pdf_url": "https://exemplo.com/catalogo.pdf", "leilao": "Leilão 1"}
+    with app.test_request_context(f"{BASE}/trigger_analyze_catalog", method="POST", json=body, headers=headers):
+        main.trigger_analyze_catalog(request)
+    sent_json = mock_post.call_args.kwargs["json"]
+    assert sent_json["inputs"] == {"pdf_url": "https://exemplo.com/catalogo.pdf", "leilao": "Leilão 1"}
+
+
+@patch("main.requests.post")
+def test_trigger_analyze_catalog_returns_502_when_github_rejects(mock_post):
+    mock_post.return_value = _mock_github_response(422, "Validation failed")
+    headers = {"Authorization": "Bearer chavetrigger"}
+    body = {"pdf_url": "https://exemplo.com/catalogo.pdf", "leilao": "Leilão 1"}
+    with app.test_request_context(f"{BASE}/trigger_analyze_catalog", method="POST", json=body, headers=headers):
+        response = main.trigger_analyze_catalog(request)
+    assert response.status_code == 502

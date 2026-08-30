@@ -424,9 +424,55 @@
     </div>
   </section>
 
+  <section class="card" id="catalog-card">
+    <h2>Analisar catálogo do leilão</h2>
+    <p class="card-sub">
+      Cole a URL pública do PDF do catálogo — a IA lê todos os lotes de uma vez (até 60) e
+      já gera um rascunho para cada um, todos agrupados sob o nome do leilão. Cada rascunho
+      ainda precisa de uma foto anexada antes de aprovar
+      (<code>create_campaigns_from_drafts.py --draft-id &lt;id&gt; --picture-url ...</code>).
+    </p>
+
+    <form id="catalog-form">
+      <div style="display:grid;gap:12px;grid-template-columns:1fr;">
+        <div>
+          <label for="catalog-leilao" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+            Nome do leilão *
+          </label>
+          <input id="catalog-leilao" class="config-input" type="text" style="width:100%;" required
+                 placeholder='ex: "Leilão 15498 - Imóveis Setembro"' />
+        </div>
+
+        <div>
+          <label for="catalog-pdf-url" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
+            URL pública do PDF do catálogo *
+          </label>
+          <input id="catalog-pdf-url" class="config-input" type="text" style="width:100%;" required
+                 placeholder="https://exemplo.com/catalogos/leilao-15498.pdf" />
+        </div>
+
+        <details id="catalog-manual">
+          <summary style="cursor:pointer;font-size:13px;font-weight:600;color:var(--text-secondary);">
+            Opções avançadas (URL de destino, conta e página)
+          </summary>
+          <div style="display:grid;gap:10px;grid-template-columns:1fr 1fr;margin-top:10px;">
+            <input id="catalog-link-url" class="config-input" type="text" placeholder="URL de destino dos anúncios (opcional)" />
+            <input id="catalog-account-id" class="config-input" type="text" placeholder="ID da conta de anúncios (padrão: da configuração)" />
+            <input id="catalog-page-id" class="config-input" type="text" placeholder="ID da página do Facebook (opcional)" />
+          </div>
+        </details>
+      </div>
+
+      <div style="margin-top:14px;display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <button id="catalog-submit-btn" class="btn-primary" type="submit">Analisar catálogo e gerar rascunhos</button>
+        <span id="catalog-status-text" style="font-size:12px;color:var(--text-muted);"></span>
+      </div>
+    </form>
+  </section>
+
   <section class="card" id="suggest-card">
-    <h2>Sugerir público-alvo</h2>
-    <p class="card-sub">Cole o link de um lote do leilão e a IA gera a recomendação de público e um rascunho de anúncio para você revisar — nada vai pro Facebook ainda. Aprove depois, no card "Rascunhos de anúncios" abaixo.</p>
+    <h2>Sugerir público-alvo (lote avulso)</h2>
+    <p class="card-sub">Para um lote fora de catálogo (ou pra testar um só). Cole o link do lote e a IA gera a recomendação de público e um rascunho de anúncio para você revisar — nada vai pro Facebook ainda. Aprove depois, no card "Rascunhos de anúncios" abaixo.</p>
 
     <div id="suggest-key-setup" style="display:none;margin-bottom:14px;">
       <label for="trigger-key-input" style="font-size:13px;font-weight:600;display:block;margin-bottom:6px;">
@@ -1371,6 +1417,88 @@
         submitBtn.disabled = false;
         if (result.ok) {
           statusText.textContent = "Disparado! O rascunho aparece no card \"Rascunhos de anúncios\" assim que o GitHub Actions terminar (1-2 minutos).";
+        } else {
+          statusText.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
+        }
+      })
+      .catch(function () {
+        submitBtn.disabled = false;
+        statusText.textContent = "Não consegui contatar o servidor — confira o endereço das Cloud Functions na aba Configurações.";
+      });
+  });
+})();
+</script>
+
+<script>
+(function () {
+  "use strict";
+
+  // Card "Analisar catálogo do leilão": dispara trigger_analyze_catalog, que roda
+  // scripts/analyze_catalog.py pelo GitHub Actions e gera um rascunho por lote do PDF de
+  // uma vez só (até 60). Reaproveita a MESMA chave de disparo e o mesmo endereço de Cloud
+  // Functions já configurados no card "Sugerir público-alvo" — não duplica a etapa de
+  // configuração, só avisa inline se ainda não foi feita.
+  var CATALOG_URL_KEY = "marketing_functions_base_url";
+  var CATALOG_TRIGGER_KEY = "marketing_trigger_key";
+
+  function catalogReadBaseUrl() {
+    try { return (localStorage.getItem(CATALOG_URL_KEY) || "").replace(/\/+$/, ""); } catch (e) { return ""; }
+  }
+  function catalogReadTriggerKey() {
+    try { return localStorage.getItem(CATALOG_TRIGGER_KEY) || ""; } catch (e) { return ""; }
+  }
+
+  var form = document.getElementById("catalog-form");
+  var submitBtn = document.getElementById("catalog-submit-btn");
+  var statusText = document.getElementById("catalog-status-text");
+
+  form.addEventListener("submit", function (evt) {
+    evt.preventDefault();
+    var baseUrl = catalogReadBaseUrl();
+    if (!baseUrl) {
+      statusText.textContent = "Configure o endereço das Cloud Functions na aba Configurações primeiro.";
+      return;
+    }
+    var key = catalogReadTriggerKey();
+    if (!key) {
+      statusText.textContent = 'Configure a chave de disparo no card "Sugerir público-alvo" primeiro (é a mesma chave).';
+      return;
+    }
+    var pdfUrl = document.getElementById("catalog-pdf-url").value.trim();
+    var leilao = document.getElementById("catalog-leilao").value.trim();
+    if (!pdfUrl || !leilao) {
+      statusText.textContent = "Preencha o nome do leilão e a URL do PDF do catálogo.";
+      return;
+    }
+
+    var payload = {
+      pdf_url: pdfUrl,
+      leilao: leilao,
+      link_url: document.getElementById("catalog-link-url").value.trim(),
+      account_id: document.getElementById("catalog-account-id").value.trim(),
+      page_id: document.getElementById("catalog-page-id").value.trim()
+    };
+
+    submitBtn.disabled = true;
+    statusText.textContent = "Analisando o catálogo…";
+
+    fetch(baseUrl + "/trigger_analyze_catalog", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": "Bearer " + key
+      },
+      body: JSON.stringify(payload)
+    })
+      .then(function (resp) {
+        return resp.json().catch(function () { return {}; }).then(function (data) {
+          return { ok: resp.ok, data: data };
+        });
+      })
+      .then(function (result) {
+        submitBtn.disabled = false;
+        if (result.ok) {
+          statusText.textContent = "Disparado! Pode levar alguns minutos pra ler o catálogo inteiro — os rascunhos de todos os lotes aparecem no card \"Rascunhos de anúncios\" quando terminar.";
         } else {
           statusText.textContent = "Erro: " + (result.data && result.data.error ? result.data.error : "não foi possível disparar.");
         }

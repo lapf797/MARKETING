@@ -19,6 +19,9 @@ funções:
 - trigger_approve_draft     : aprova ou rejeita um rascunho de anúncio direto do dashboard,
                                disparando o workflow "Aprovar rascunho" — fecha o ciclo
                                revisar → aprovar sem precisar do GitHub em nenhum passo
+- trigger_analyze_catalog   : recebe a URL do PDF do catálogo do leilão do dashboard e
+                               dispara o workflow "Analisar catalogo do leilao" — gera de
+                               uma vez o rascunho de todos os lotes do catálogo (até 60)
 
 O token do Facebook nunca é exposto ao navegador nem ao dashboard — só fica no Firestore,
 lido e escrito sempre pelo lado do servidor (Admin SDK). Ver docs/SETUP_FIREBASE_OAUTH.md
@@ -348,3 +351,33 @@ def trigger_approve_draft(req: https_fn.Request) -> https_fn.Response:
                                   headers={"Content-Type": "application/json"})
 
     return _dispatch_workflow("approve-draft.yml", {"draft_id": draft_id, "action": action})
+
+
+@https_fn.on_request(secrets=[DASHBOARD_TRIGGER_KEY, GITHUB_PAT],
+                      cors=CorsOptions(cors_origins="*", cors_methods=["POST"]))
+def trigger_analyze_catalog(req: https_fn.Request) -> https_fn.Response:
+    """Recebe o formulário do card "Analisar catálogo do leilão" do dashboard e dispara o
+    workflow "Analisar catalogo do leilao" (analyze-catalog.yml) — lê o PDF inteiro (até 60
+    lotes) numa passada só e gera um rascunho por lote para revisão, todos agrupados sob o
+    mesmo nome de leilão."""
+    if not _check_bearer(req, DASHBOARD_TRIGGER_KEY.value):
+        return https_fn.Response('{"error":"não autorizado"}', status=401,
+                                  headers={"Content-Type": "application/json"})
+
+    body = req.get_json(silent=True) or {}
+    pdf_url = str(body.get("pdf_url") or "").strip()
+    if not pdf_url:
+        return https_fn.Response('{"error":"URL do PDF do catálogo é obrigatória"}', status=400,
+                                  headers={"Content-Type": "application/json"})
+    leilao = str(body.get("leilao") or "").strip()
+    if not leilao:
+        return https_fn.Response('{"error":"nome do leilão é obrigatório"}', status=400,
+                                  headers={"Content-Type": "application/json"})
+
+    workflow_inputs = {"pdf_url": pdf_url, "leilao": leilao}
+    for field in ("link_url", "account_id", "page_id"):
+        value = str(body.get(field) or "").strip()
+        if value:
+            workflow_inputs[field] = value
+
+    return _dispatch_workflow("analyze-catalog.yml", workflow_inputs)

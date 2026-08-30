@@ -154,12 +154,13 @@ próprio sistema renova o acesso sozinho, uma vez por semana, sem você precisar
 aqui — a única exceção é se você revogar o acesso manualmente lá no Facebook, caso em que
 basta clicar em "Conectar com Facebook" de novo.
 
-## 11. (Opcional) Disparar "Sugerir público-alvo" e aprovar rascunhos direto do dashboard
+## 11. (Opcional) Disparar "Sugerir público-alvo", "Analisar catálogo" e aprovar rascunhos direto do dashboard
 
-Por padrão, rodar os workflows "Sugerir público-alvo" e "Aprovar rascunho" ainda exige ir
-na aba Actions do GitHub. Dá pra fazer isso direto do dashboard (cards "Sugerir
-público-alvo" e "Rascunhos de anúncios") — exige mais dois secrets, uma vez só. Os dois
-cards usam a mesma chave, então essa configuração habilita os dois de uma vez:
+Por padrão, rodar os workflows "Sugerir público-alvo", "Analisar catálogo do leilão" e
+"Aprovar rascunho" ainda exige ir na aba Actions do GitHub. Dá pra fazer isso direto do
+dashboard (cards "Analisar catálogo do leilão", "Sugerir público-alvo" e "Rascunhos de
+anúncios") — exige mais dois secrets, uma vez só. Os três cards usam a mesma chave, então
+essa configuração habilita os três de uma vez:
 
 1. **Gerar um token do GitHub**: em
    [github.com/settings/tokens?type=beta](https://github.com/settings/tokens?type=beta)
@@ -185,15 +186,24 @@ cards usam a mesma chave, então essa configuração habilita os dois de uma vez
    (Firebase)" → Run workflow**).
 5. No dashboard, card **"Sugerir público-alvo"**, cole a chave do passo 3 → Salvar.
 
-Pronto — o card passa a mostrar o formulário. Preencha o **nome do leilão** (obrigatório —
-agrupa este lote com os demais do mesmo envio no card "Rascunhos de anúncios"), cole o
-link do leilão (ou preencha na aba manual), opcionalmente a **URL da foto do lote** (gera
-a pré-visualização do anúncio) e o orçamento diário, e clique **Gerar rascunho**. Depois
-de 1-2 minutos (tempo do GitHub Actions rodar), o rascunho aparece no card "Rascunhos de
-anúncios" — nada foi criado no Facebook ainda. Revise a recomendação de público, a copy e
-a pré-visualização; se estiver tudo certo, clique **"Aprovar e criar campanha"** (cria a
-campanha **pausada** de verdade no Facebook Ads) ou **"Rejeitar"** — os mesmos dois
-botões usam a chave configurada no passo 5.
+Pronto — os três cards passam a funcionar. Para **um leilão inteiro de uma vez** (até 60
+lotes), use o card **"Analisar catálogo do leilão"**: preencha o nome do leilão e a URL
+pública do PDF do catálogo, e clique **"Analisar catálogo e gerar rascunhos"** — a IA lê
+todos os lotes numa passada só. Para **um lote avulso**, o card **"Sugerir público-alvo"**:
+preencha o **nome do leilão** (obrigatório — agrupa este lote com os demais do mesmo envio
+no card "Rascunhos de anúncios"), cole o link do lote (ou preencha na aba manual),
+opcionalmente a **URL da foto do lote** (gera a pré-visualização do anúncio) e o orçamento
+diário, e clique **Gerar rascunho**.
+
+Depois de alguns minutos (tempo do GitHub Actions rodar — mais demorado quanto mais lotes
+tiver o catálogo), os rascunhos aparecem no card "Rascunhos de anúncios" — nada foi criado
+no Facebook ainda. Revise a recomendação de público, a copy e a pré-visualização de cada
+um (use o filtro por leilão pra ver só os deste); se estiver tudo certo, clique **"Aprovar
+e criar campanha"** (cria a campanha **pausada** de verdade no Facebook Ads) ou
+**"Rejeitar"** — os mesmos botões usam a chave configurada no passo 5. Os rascunhos vindos
+do catálogo em PDF ainda precisam de uma foto anexada antes de poder aprovar (via
+`create_campaigns_from_drafts.py --draft-id <id> --picture-url ...`) — o card "Rascunhos
+de anúncios" mostra "faltam: picture_url" nesses casos.
 
 ---
 
@@ -212,6 +222,14 @@ botões usam a chave configurada no passo 5.
 - **"o GitHub recusou o disparo"**: o `GITHUB_PAT` expirou, foi revogado, ou não tem
   permissão de "Actions: write" no repositório — gere um novo token (passo 11.1) e
   regrave o secret.
+- **Card "Analisar catálogo do leilão" dá "Configure a chave de disparo..."**: use a
+  configuração do passo 11.5 (é feita uma vez só, no card "Sugerir público-alvo" — o card
+  do catálogo reaproveita a mesma chave, não tem um campo próprio para colar de novo).
+- **Card "Analisar catálogo" roda mas nenhum rascunho aparece**: confira a execução
+  "Analisar catalogo do leilao" na aba Actions do GitHub — o log mostra quantos ativos
+  foram identificados; se vier "0 ativo(s) identificado(s)", a IA não reconheceu nenhum
+  lote no PDF (confira se a URL aponta direto para o arquivo PDF, não para uma página HTML
+  que só linka para ele).
 - **Botão "Aprovar"/"Rejeitar" no card "Rascunhos de anúncios" dá "Configure o endereço
   das Cloud Functions..."**: mesma configuração da aba Configurações (passo 8) — os
   botões usam o mesmo endereço salvo lá.

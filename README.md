@@ -47,9 +47,13 @@ nenhum deles precisa de conta de anúncios configurada antes de você já ver os
 ```bash
 python scripts/analyze_catalog.py \
   --pdf caminho/ou/url/do/catalogo.pdf \
+  --leilao "Leilão 15498 - Imóveis Setembro" \
   --link-url "https://milanleiloes.com.br/leilao/imoveis" \
   --account-id act_123456 --page-id 987654321
 ```
+
+Ou, sem instalar nada: card **"Analisar catálogo do leilão"** no dashboard web (cola a URL
+pública do PDF e o nome do leilão) — ver seção "Dashboard web" abaixo.
 
 A Claude lê o PDF inteiro (texto e fotos) numa única chamada e devolve, para cada ativo:
 categoria, cidade/UF, preço, público-alvo (idade/gênero/interesses), e a copy pronta do
@@ -60,8 +64,9 @@ decididos pela IA: são calculados por código determinístico
 (`src/ai/budget_rules.py`), por faixa de valor do ativo — ajustável em
 `config/settings.yaml` → `ads.budget_tiers`.
 
-Cada ativo extraído vira um **rascunho** em `logs/ad_drafts.json` (visível também no
-dashboard, seção "Rascunhos de anúncios") — nada é criado no Facebook nesta etapa.
+Cada ativo extraído vira um **rascunho** em `logs/ad_drafts.json`, agrupado sob o nome do
+leilão informado (visível também no dashboard, seção "Rascunhos de anúncios", com filtro
+por leilão) — nada é criado no Facebook nesta etapa.
 
 ### 2. Revisar e aprovar
 
@@ -247,8 +252,10 @@ credenciais que você já tem (Facebook + Anthropic).
    repository secret** e cadastre, um de cada vez: `FB_ACCESS_TOKEN`, `FB_AD_ACCOUNT_ID`,
    `FB_APP_ID`, `FB_APP_SECRET`, `ANTHROPIC_API_KEY`.
 2. Vá na aba **Actions** do repositório. Na lista à esquerda, escolha um dos workflows:
-   - **"Sugerir publico-alvo (sob demanda)"** — para testar com o link de um leilão real
+   - **"Sugerir publico-alvo (sob demanda)"** — para testar com o link de um lote avulso real
      (gera um rascunho para revisão, não toca no Facebook ainda).
+   - **"Analisar catalogo do leilao (sob demanda)"** — para testar com a URL pública de um
+     PDF de catálogo real (gera um rascunho por lote, todos de uma vez).
    - **"Aprovar rascunho (sob demanda)"** — aprova (`action: approve`) ou rejeita
      (`action: reject`) um rascunho pelo `draft_id` (aparece no log do passo anterior, ou no
      dashboard) — só aprovar cria a campanha pausada de verdade no Facebook.
@@ -279,7 +286,8 @@ src/reporting/                  # push para o Power BI
 src/facebook_ads/dynamic_token.py  # busca o token no login com Facebook (Firebase), se configurado
 assets/fonts/                   # fonte vendorizada (Instrument Sans, licença OFL) usada nos criativos
 functions/                      # Cloud Functions do login com Facebook (Firebase) — ver docs/SETUP_FIREBASE_OAUTH.md
-scripts/analyze_catalog.py             # PDF do catálogo -> rascunhos de anúncio (não toca no Facebook)
+scripts/analyze_catalog.py             # PDF do catálogo (até 60 lotes) -> rascunhos de anúncio (não toca no Facebook)
+scripts/run_analyze_catalog_from_env.py  # mesma coisa, via variáveis de ambiente (GitHub Actions)
 scripts/create_campaigns_from_drafts.py  # rascunhos aprovados -> campanhas reais no Facebook
 scripts/preview_ad_creative.py      # gera uma prévia local do criativo, sem usar nenhuma API
 scripts/sync_custom_audience.py     # CSV de contatos -> público personalizado + semelhante (lookalike)
@@ -292,6 +300,7 @@ scripts/rollback.py                 # reverte manualmente a última ação em um
 src/ai/ad_copywriter.py             # copy do anúncio (headline/texto/descrição) para o fluxo avulso
 .github/workflows/daily-optimization.yml   # agenda a execução diária (posicionamento + orçamento)
 .github/workflows/suggest-audience.yml     # dispara scripts/suggest_audience.py pela interface do GitHub
+.github/workflows/analyze-catalog.yml      # dispara scripts/analyze_catalog.py pela interface do GitHub
 .github/workflows/approve-draft.yml        # aprova/rejeita um rascunho (dashboard ou GitHub Actions)
 .github/workflows/ci.yml                   # roda os testes em cada PR
 .github/workflows/deploy-firebase.yml      # publica o login com Facebook (Firebase) sob demanda
@@ -378,17 +387,28 @@ Em **Settings → Secrets and variables → Actions** do repositório, cadastre 
 
 Os `POWERBI_*` (`POWERBI_TENANT_ID`, `POWERBI_CLIENT_ID`, `POWERBI_CLIENT_SECRET`,
 `POWERBI_WORKSPACE_ID`, `POWERBI_DATASET_ID`) só são necessários quando você ligar
-`powerbi.push_enabled` (passo 3).
+`powerbi.push_enabled` (passo 3). `FB_PAGE_ID` é opcional: se cadastrado, os rascunhos já
+saem com a página do Facebook preenchida (senão, dá pra definir depois, na aprovação). Se
+você configurou o login com Facebook via Firebase (`docs/SETUP_FIREBASE_OAUTH.md`),
+`FB_TOKEN_ENDPOINT_URL`/`FB_TOKEN_API_KEY` substituem `FB_ACCESS_TOKEN` automaticamente em
+todos os workflows.
 
-Há dois workflows:
+Há quatro workflows:
 
 - `.github/workflows/daily-optimization.yml` roda automaticamente todo dia às 09:00 UTC
   (06:00 no horário de Brasília) — ajuste o `cron` se quiser outro horário. O agendamento só
   dispara no branch padrão do repositório; após o merge desta branch, confirme que o `cron`
   está ativo em **Actions**. Também pode ser disparado manualmente a qualquer momento
   (**Run workflow**), em qualquer branch.
-- `.github/workflows/suggest-audience.yml` só roda sob demanda (**Run workflow**, com o link
-  do leilão e o orçamento) — não tem agendamento.
+- `.github/workflows/suggest-audience.yml` gera o rascunho de um lote avulso sob demanda
+  (**Run workflow**, com o link do lote, o nome do leilão e o orçamento) — não tem
+  agendamento.
+- `.github/workflows/analyze-catalog.yml` gera de uma vez o rascunho de todos os lotes de
+  um catálogo em PDF (**Run workflow**, com a URL pública do PDF e o nome do leilão) — o
+  jeito rápido de anunciar um leilão inteiro (até 60 lotes) sem repetir o passo a passo lote
+  a lote.
+- `.github/workflows/approve-draft.yml` aprova (cria a campanha pausada de verdade) ou
+  rejeita um rascunho pelo `draft_id`.
 
 ### 7. Publicar o dashboard (GitHub Pages)
 
@@ -427,21 +447,26 @@ precisar gerar token manualmente — ver `docs/SETUP_FIREBASE_OAUTH.md`). O ende
 Cloud Functions fica salvo só no navegador (`localStorage`); nenhum token passa pelo
 dashboard em nenhum momento.
 
-O card **"Sugerir público-alvo"** dispara o workflow correspondente do GitHub Actions
-direto do dashboard (cola o link do leilão, o nome do leilão e o orçamento, sem abrir o
-GitHub) — exige uma configuração opcional à parte (`docs/SETUP_FIREBASE_OAUTH.md`, seção
-11). Ele nunca cria nada no Facebook diretamente: gera um **rascunho** para revisão.
+O card **"Analisar catálogo do leilão"** é o jeito rápido de anunciar um leilão inteiro:
+cola o nome do leilão e a URL pública do PDF do catálogo, e a IA lê todos os lotes de uma
+vez (até 60) e já gera um rascunho para cada um — sem repetir o passo a passo lote a lote.
+O card **"Sugerir público-alvo"** faz o mesmo processo para um lote avulso (fora de
+catálogo, ou pra testar um só), colando o link do lote. Os dois disparam o workflow
+correspondente do GitHub Actions direto do dashboard, sem abrir o GitHub — exigem uma
+configuração opcional à parte, a mesma para os dois (`docs/SETUP_FIREBASE_OAUTH.md`, seção
+11). Nenhum dos dois cria nada no Facebook diretamente: sempre geram **rascunhos** para
+revisão.
 
 O card **"Rascunhos de anúncios"** é onde a revisão acontece — mostra, por rascunho
-pendente (do catálogo em PDF ou do card acima): a tag do leilão, a pré-visualização do
+pendente (do catálogo em PDF ou do lote avulso): a tag do leilão, a pré-visualização do
 criativo (quando já tem foto), a manchete/copy do anúncio, e a recomendação de público
 (idade, gênero, interesses, o raciocínio da IA). Um filtro **"Leilão"** deixa ver só os
 rascunhos/campanhas de um leilão específico, acompanhando leilão a leilão como as
-campanhas estão indo. Cada rascunho pronto (sem campos faltando) tem botões **"Aprovar e
-criar campanha"** e **"Rejeitar"** — aprovar dispara `create_campaigns_from_drafts.py
---confirm` no GitHub Actions e cria a campanha **pausada** de verdade no Facebook; rejeitar
-descarta sem tocar no Facebook. Usa a mesma chave de disparo do card "Sugerir
-público-alvo".
+campanhas estão indo — útil especialmente com um catálogo de dezenas de lotes de uma vez.
+Cada rascunho pronto (sem campos faltando) tem botões **"Aprovar e criar campanha"** e
+**"Rejeitar"** — aprovar dispara `create_campaigns_from_drafts.py --confirm` no GitHub
+Actions e cria a campanha **pausada** de verdade no Facebook; rejeitar descarta sem tocar
+no Facebook. Usa a mesma chave de disparo dos dois cards acima.
 
 ## Sistema de segurança (guardrails)
 
@@ -519,12 +544,12 @@ travar o uso do que já existe, mas valem uma rodada dedicada quando fizer senti
   composição da imagem final (realce, marca, selos, data — ver "Geração automática da
   imagem do anúncio" acima) já é automática; falta só a etapa anterior, hoje manual: cada
   rascunho ainda depende de uma `picture_url` anexada com `--picture-url`.
-- `create_campaigns_from_drafts.py` já tem workflow (`approve-draft.yml`, aprovando/
-  rejeitando um rascunho por vez, disparável pelo dashboard). Faltam `analyze_catalog.py` e
-  `sync_custom_audience.py`, nos mesmos moldes — hoje os dois só rodam localmente (o PDF do
-  catálogo e o CSV de contatos precisariam estar hospedados numa URL, já que formulários do
-  GitHub Actions não aceitam upload de arquivo). `optimize_placements.py` já roda
-  automaticamente todo dia, sem precisar disso.
+- `create_campaigns_from_drafts.py` e `analyze_catalog.py` já têm workflow
+  (`approve-draft.yml` e `analyze-catalog.yml`, ambos disparáveis pelo dashboard). Falta
+  `sync_custom_audience.py`, nos mesmos moldes — hoje só roda localmente (o CSV de contatos
+  precisaria estar hospedado numa URL, já que formulários do GitHub Actions não aceitam
+  upload de arquivo). `optimize_placements.py` já roda automaticamente todo dia, sem
+  precisar disso.
 - Criar relatórios/dashboards no Power BI em cima das tabelas `CampaignPerformance`,
   `OptimizerActions` e `AudienceRecommendations`.
 - Considerar alertas (e-mail/Slack) quando a IA sinalizar `flag_for_audience_refresh` ou
